@@ -164,43 +164,80 @@ kubenix's `attrName` is the same idea as `kindAliases`: a name you choose,
 bound to a type. This design takes the idea and leaves the version out of the
 binding.
 
-### Compatibility through a separate evaluation
+Three facts make kubenix modules cheap to take in:
+
+- **kubenix's built-in names are a function of `APIResource`.** Its generator
+  (`getAttrName` in `pkgs/generators/k8s/default.nix`) takes the plural
+  resource name and the kind: `configmaps` and `ConfigMap` give
+  `configMaps`. The prototype computes the same name for each of the 60
+  shipped resources that kubenix also generates. kubenix has 14 more names,
+  all of them alpha or beta APIs or subresources (`token`, `eviction`) that
+  the shipped list does not hold. That gap is in the data, not in the rule.
+- **kubenix's list-as-attribute-set form is Kubernetes data.** `containers.nginx`
+  becomes a list keyed by `name`, and `volumeMounts."/etc/nginx"` one keyed by
+  `mountPath`. The keys come from the OpenAPI extensions
+  `x-kubernetes-patch-merge-key` and `x-kubernetes-list-map-keys`.
+- **A module can be rewritten before evaluation.**
+  solid-kubernetes' `mkComponent` does this with
+  `lib.modules.mapDefinitionValue`, and `mkIf`, `mkMerge` and priorities
+  survive it.
+
+### Compatibility in one evaluation
 
 kubenix and easykubenix both declare `kubernetes.resources`, `objects`,
-`generated`, `namespace` and `imports`, with different meanings. A kubenix
-module therefore cannot import into an easykubenix evaluation. It runs in its
-own, and easykubenix imports the result the way it imports a Helm chart:
+`generated`, `namespace` and `imports`, with different meanings. So
+easykubenix rewrites each kubenix module and mounts it at `kubenix.*`:
 
-1. A new option, `kubenix.modules`, takes kubenix modules unchanged.
-2. easykubenix evaluates them with kubenix's own `lib/eval-modules.nix`, not
-   its flake-compat `default.nix`. The user provides the kubenix source, so
-   easykubenix does not depend on it.
-3. kubenix's `config.kubernetes.objects` go through the import path above.
-   They land under an alias, a bare kind or a `GroupKind` string, and an
-   easykubenix module patches them there.
-4. kubenix's `customTypes` become `apiResources` entries. A custom kind then
-   resolves by its bare name.
+1. `ekn.lib.fromKubenix module` takes a path, a function or an attribute set,
+   as `imports` does, and walks `imports` the same way. Each definition under
+   `kubernetes` moves to `kubenix`. Its `mkIf`/`mkMerge` wrappers move with it.
+2. A function module gets `kubenix` from the wrapper, not from
+   `_module.args`. An `imports` list cannot read `_module.args`. Each
+   `kubenix.modules.*` is an empty module, because easykubenix provides that
+   behaviour.
+3. A function module gets a `config` in which `config.kubernetes` is
+   easykubenix's `config.kubenix`. A kubenix module that reads
+   `config.kubernetes.resources.configMaps.x.metadata.name` keeps working.
+4. easykubenix declares `kubenix.resources.<attrName>.<name>`,
+   `kubenix.namespace`, `kubenix.customTypes` and `kubenix.project`, and
+   writes each resource to `kubernetes.objects`. The `attrName` resolves
+   through `apiResources`, a custom type's own `attrName` first. The
+   namespace comes from `metadata.namespace`, then `kubenix.namespace`. The
+   key is the one an import would choose. Lists written as attribute sets
+   become lists by the OpenAPI merge keys.
 
-`design/kinds/kubenix.nix` runs this. It evaluates kubenix's `deployment`
-and `custom-resources` examples unchanged, with the `containers.nginx` attribute
-form and a custom `CronTab`. It imports them and applies an easykubenix
-`mkForce` to the kubenix Deployment. Result: five objects in namespace `web`,
-keys `ConfigMap`, `CronTab`, `Deployment` and `Service`, and `replicas = 3`.
-The whole evaluation takes 0.73 s.
+`design/kinds/kubenix-wrap.nix` is this wrapper, and
+`design/kinds/kubenix-wrapped.nix` runs it on kubenix's `deployment` and
+`custom-resources` examples, unchanged:
+
+- Five objects in namespace `web`, under `ConfigMap`, `CronTab`, `Deployment`
+  and `Service`.
+- An easykubenix `mkForce` through kubenix's own path
+  (`kubenix.resources.deployments.nginx...containers.nginx.image`) and one
+  through `kubernetes.objects.web.Deployment.nginx.spec.replicas` both apply.
+- `containers` and `volumeMounts` come out as lists.
+- 0.53 s and 75 MB, against 0.73 s and 132 MB for a separate kubenix
+  evaluation (`design/kinds/kubenix.nix`).
 
 ```
-nix eval --impure --json --expr 'import ./design/kinds/kubenix.nix { kubenix = <checkout>; }'
+nix eval --impure --json --expr 'import ./design/kinds/kubenix-wrapped.nix { kubenix = <checkout>; }'
 ```
 
-What stays inside kubenix: its typed API (generated per Kubernetes version,
-1.19 to 1.36), its submodules, its Helm module and every read across kubenix
-modules. An easykubenix patch lands after kubenix's type check and is not
-checked by it. kubenix's `kubenix/project-name` and `kubenix/k8s-version`
-annotations go through unchanged.
+What this does not take from kubenix:
 
-Rejected: easykubenix accepting kubenix's own paths in the same evaluation.
-The option names conflict, and the value of kubenix is its generated, typed
-API. A copy of that API is a second kubenix.
+- Its typed API. `kubenix.resources` is `kubeValueType`, as `objects` is. A
+  wrong field fails at `ekn validate`'s schema check, not at evaluation.
+- `kubenix.lib` helpers (`kubenix.lib.k8s.*`). They are plain functions, so
+  the wrapper can pass kubenix's `lib/k8s` when the user gives the source.
+- Its submodules, Helm, Docker and testing modules. A module that uses them
+  still has the separate evaluation in `design/kinds/kubenix.nix`.
+- Reads of `config.kubernetes.api.resources.<group>.<version>.<kind>` and of
+  `options.kubernetes.*`. The `config` view covers `kubenix.*` only.
+
+The prototype's merge keys are a stand-in table by field name. The real table
+comes from the OpenAPI document, per schema path. The same table can
+generalise `mkNamedList`, which always keys on `name`, to the key each
+Kubernetes list declares.
 
 ## Migration
 
@@ -257,8 +294,8 @@ the import keys and the identity check. `objects` keeps its current type.
    It looks up the attribute paths only when it fires.
 8. **Python identity keys with the group.** A separate change after the Nix
    part.
-9. **kubenix compatibility through a separate evaluation.** Recommended, as a
-   change after the kinds work, because it reuses the import path. The
-   option shape is open: one `kubenix.modules` list, or named instances like
-   `importyaml.<name>` so that two kubenix projects can differ in
-   `kubernetes.version`.
+9. **kubenix compatibility in one evaluation, by rewriting modules.**
+   Recommended, after the kinds work, because it reuses key resolution.
+   Open: where the OpenAPI merge-key table comes from (generated per
+   Kubernetes version, beside `apiMappingFile`), and whether the separate
+   evaluation stays as the route for kubenix's submodules and Helm module.

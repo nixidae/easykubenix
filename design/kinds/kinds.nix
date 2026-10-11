@@ -143,6 +143,9 @@ let
   };
 in
 {
+  # The key an object of this GroupKind is filed under.
+  keyFor = cfg: (resolver cfg).keyFor;
+
   # An APIResourceList (`kubectl api-resources --output=json`) as
   # `apiResources` definitions, keyed by GroupResource string. `group` is
   # omitted for the core group (`omitempty`).
