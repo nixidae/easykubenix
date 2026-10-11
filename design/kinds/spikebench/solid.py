@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 """solid-kubernetes' nixlab3 against two easykubenix revisions.
 
-Usage: solid.py <easykubenix checkout> <solid-kubernetes checkout> <solid.nix> <baseline rev> <spike rev> <out.json>
+Usage: solid.py <easykubenix checkout> <solid.nix> <out.json> <baseline rev> <baseline solid checkout> <spike rev> <spike solid checkout>
 
 solid-kubernetes reaches easykubenix through the umbrella, and with
 SOLID_DEV_CHECKOUTS and UMBRELLA_DEV=easykubenix that is the easykubenix
-working copy. So the arms differ by which revision that working copy is on:
-this moves it with `jj new` before every run, interleaving the arms. Every
-other source comes from the umbrella's lock in both. `solid.nix` is passed
-from outside the working copy, because the baseline revision does not have it.
+working copy. The umbrella has no other way to point at a checkout, so the
+arms differ by which revision that working copy is on: this moves it with
+`jj new` before every run, interleaving the arms. Each arm has its own
+solid-kubernetes checkout (a jj workspace), because the spike changes solid
+too. Every other source comes from the umbrella's lock in both. `solid.nix`
+is passed from outside the working copy, because the baseline revision does
+not have it.
 
 Leaves the working copy on a new change on top of the spike revision.
 """
@@ -68,19 +71,19 @@ def run(arm: str, solid: str, harness: str, output: str) -> dict[str, object]:
 
 
 def main() -> None:
-    ekn, solid, harness, baseline, spike, out = sys.argv[1:7]
-    arms = {"baseline": baseline, "spike": spike}
+    ekn, harness, out, baseline, baseline_solid, spike, spike_solid = sys.argv[1:8]
+    arms = {"baseline": (baseline, baseline_solid), "spike": (spike, spike_solid)}
     results = []
     try:
         # One hash run each: warms the store and checks the arms render alike.
-        for name, rev in arms.items():
+        for name, (rev, solid) in arms.items():
             switch(ekn, rev)
             row = run(name, solid, harness, "hash")
             row["kind"] = "hash"
             results.append(row)
             print(json.dumps(row), flush=True)
         for _ in range(RUNS):
-            for name, rev in arms.items():
+            for name, (rev, solid) in arms.items():
                 switch(ekn, rev)
                 row = run(name, solid, harness, "length")
                 row["kind"] = "timing"
