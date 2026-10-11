@@ -95,7 +95,9 @@ let
     crds = [ { importyaml.bench.src = stream; } ];
   };
 
-  ekn = import "${arm}/default.nix" {
+  # A path, not "${arm}/default.nix": interpolation copies the whole checkout
+  # into the store on every run, and the two arms differ in size.
+  ekn = import (arm + "/default.nix") {
     inherit sources pkgs;
     modules = modules.${workload};
   };

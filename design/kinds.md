@@ -421,9 +421,6 @@ Decided 2026-10-11.
 8. **The Python identity keys get the group in the same change as the Nix
    part**, so Nix and Python agree on identity when it lands. The kubeapply
    gate has to pass before it does.
-10. **`apiMappings` stays as a deprecated input.** It becomes an
-    `apiResources` entry and prints a warning. solid-kubernetes uses it 80
-    times.
 9. **kubenix compatibility as one `kubenix` submodule, `null` by default.**
    Recommended, after the kinds work, because it reuses key resolution.
    kubenix's types stay intact, and an unused option costs nothing. The
@@ -431,3 +428,52 @@ Decided 2026-10-11.
    cannot define options of the configuration around it, so `eknConfig` is
    read-only by construction: values cross both ways by reading, keys do
    not cross.
+10. **`apiMappings` stays as a deprecated input.** solid-kubernetes uses it 80
+    times. In the spike it is an override the resolver consults first for a
+    bare kind, which keeps its meaning exactly; nothing fills it from the file
+    any more. The warning is not in the spike.
+
+## Spike
+
+The Nix side of decisions 1–7 and 10 is built in easykubenix itself, as one
+change that does not land (`spike: kinds, aliases and object identity`).
+`checks.nix all` passes, with one docs case using a GroupKind key.
+`design/kinds/spikebench/cases.nix` runs the design's cases against it: two
+imported charts that both ship `Cluster` evaluate with no declaration, aliases
+re-key them, `PGCluster.other` gets the CRD's preferred `v1` over its stored
+`v1beta1`, `Event` means core `v1`, and the three errors fire with their
+messages.
+
+ekn's prune scan reads `apiMappings`, which now holds only what the user
+wrote, so the spike scans fewer kinds. Do not deploy from it.
+
+**Evaluation cost.** `design/kinds/spikebench/` runs two workloads through the
+spike and through its parent, with the same `sources` and `pkgs`. Both arms
+render byte-identical output at N = 100. Medians of three interleaved runs,
+evaluator CPU and counters from `NIX_SHOW_STATS`:
+
+| Workload, N | baseline CPU | spike CPU | values | allocated |
+| --- | --- | --- | --- | --- |
+| N hand-written Deployments, 0 | 0.42 s | 0.46 s | +71 | +0.0 MiB |
+| 2000 | 2.15 s | 2.14 s | +36,327 (+0.24 %) | +1.9 MiB |
+| N CRDs + N custom resources imported, 0 | 0.89 s | 0.87 s | +73 | +0.0 MiB |
+| 100 | 0.88 s | 0.93 s | +14,710 (+0.6 %) | +0.9 MiB |
+| 500 | 1.19 s | 1.23 s | +55,510 (+1.1 %) | +2.9 MiB |
+| 2000 | 2.72 s | 2.75 s | +208,510 (+1.4 %) | +10.2 MiB |
+
+The CPU differences are within run-to-run noise. The counters say what they
+cost: about 18 values per hand-written object (the identity check) and about
+104 per imported CRD and resource (the CRD's `APIResource` record, its key and
+the identity check).
+
+One choice set most of that. `apiResources` as `attrsOf submodule`, with
+typed `name`/`group`/`version`/`kind`, cost +2.56M values and +113 MiB at 2000
+CRDs: one module evaluation per CRD. `attrsOf (attrsOf anything)` cost +539k
+and +26 MiB. The spike uses `attrsOf attrs`. Its cost is that an entry
+overridden at a higher priority is restated whole.
+
+Two harness traps, both fixed in `spikebench/default.nix`: interpolating a
+checkout path (`"${arm}/default.nix"`) copies it into the store on every run,
+which added 0.24 s to the larger arm with identical counters; and the priority
+on `apiMappingFile`'s entries has to be per entry, because the option filters
+a whole definition by priority before `attrsOf` splits it.
