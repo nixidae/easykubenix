@@ -67,15 +67,14 @@ let
   isCRD = object: (object.kind or null) == "CustomResourceDefinition";
 in
 {
-  # kubernetes.nix files these under `kubernetes.objects`, by namespace, key
-  # and name. An object with no `metadata.namespace` goes to `none`, where
+  # A list definition: kubernetes.nix files each object by namespace, key and
+  # name. An object with no `metadata.namespace` goes to `none`, where
   # kubernetes.nix injects no namespace -- see `transformers` above for why
   # that is the caller's job to fix and not this function's.
   #
   # Everything when the split is off, so a CRD goes through the typed option
   # and the pipeline like any other object.
-  kubernetes.importedObjects =
-    if crdSplit then lib.filter (object: !(isCRD object)) objects else objects;
+  kubernetes.objects = if crdSplit then lib.filter (object: !(isCRD object)) objects else objects;
 
   kubernetes.crds = if crdSplit then lib.filter isCRD objects else [ ];
 }

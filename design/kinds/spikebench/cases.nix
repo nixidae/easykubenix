@@ -97,6 +97,29 @@ let
       charts
       { importyaml.again.src = stream "again" [ (object "postgresql.cnpg.io/v1" { instances = 3; }) ]; }
     ];
+    # A list definition by hand, patched through the tree by its alias.
+    listAndPatch = [
+      charts
+      aliases
+      {
+        kubernetes.objects = [
+          {
+            apiVersion = "apps/v1";
+            kind = "Deployment";
+            metadata = {
+              name = "web";
+              namespace = "x";
+            };
+            spec.replicas = 1;
+          }
+          (object "postgresql.cnpg.io/v1" { instances = 3; })
+        ];
+      }
+      {
+        kubernetes.objects.x.Deployment.web.spec.replicas = lib.mkForce 2;
+        kubernetes.objects.x.PGCluster.db.spec.instances = lib.mkForce 7;
+      }
+    ];
     importDifferent = [
       charts
       { importyaml.again.src = stream "again" [ (object "postgresql.cnpg.io/v1" { instances = 4; }) ]; }

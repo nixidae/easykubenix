@@ -1,5 +1,5 @@
 # Render a chart and return its objects as two lists: `crds` for
-# `kubernetes.crds` and `objects` for `kubernetes.importedObjects`. Objects
+# `kubernetes.crds` and `objects` for `kubernetes.objects`. Objects
 # come back exactly as Helm emitted them: routing (`ekn.deploymentUnit`) and
 # annotation stamping are the caller's business.
 {
@@ -62,8 +62,8 @@ let
       ${chartDrv} > $out
   '';
   # See lib/parseYamlStream.nix for why go-yaml is the only reader here.
-  # A list, not a namespace/kind/name tree: `kubernetes.importedObjects`
-  # chooses each key, and refuses two different objects with one identity.
+  # A list, not a namespace/kind/name tree: `kubernetes.objects` files a list
+  # definition itself, chooses each key, and refuses two different objects with one identity.
   parsed = builtins.fromJSON (
     builtins.readFile (
       runCommand "${name}-rendered.json" { nativeBuildInputs = [ ekn-yaml2json ]; } ''

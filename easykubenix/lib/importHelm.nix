@@ -71,7 +71,7 @@ let
   # Appended as a trailing transformer rather than merged into the result, for
   # two reasons. It keeps this function's return a plain config fragment,
   # identical in shape to `importYaml`'s, so a caller can read
-  # `.kubernetes.importedObjects` off either. And it puts the Namespace
+  # `.kubernetes.objects` off either. And it puts the Namespace
   # through the same filing as everything else.
   #
   # Trailing, so a caller's own transformers do not see it. It is this

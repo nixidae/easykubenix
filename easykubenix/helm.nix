@@ -208,9 +208,7 @@ in
       ) cfg.releases;
     in
     {
-      kubernetes.importedObjects = lib.concatMap (
-        fragment: fragment.kubernetes.importedObjects
-      ) fragments;
+      kubernetes.objects = lib.concatMap (fragment: fragment.kubernetes.objects) fragments;
       kubernetes.crds = lib.concatMap (fragment: fragment.kubernetes.crds) fragments;
     };
 }

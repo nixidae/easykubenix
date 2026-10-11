@@ -1,5 +1,6 @@
 {
   config,
+  options,
   pkgs,
   lib,
   ekn,
@@ -294,29 +295,98 @@ let
       object.metadata.namespace or "none"
     } ${kindsLib.objectName (groupKindOf object) object.metadata.name}";
 
-  # `importedObjects` as one definition of `objects`. One definition and not
-  # one per object, so the merge walks this tree once.
-  importedTree =
+  # Every list definition of `objects`, as one tree definition in the place of
+  # the first. One definition and not one per object, so the tree merge walks
+  # it once. Across all of them, so two definitions of one object are found
+  # wherever they come from: equal ones are one object, and different ones
+  # throw. A tree merge would concatenate their lists instead.
+  fileObjectLists =
+    defs:
     let
-      byIdentity = lib.mapAttrs (
-        identity: group:
-        let
-          first = lib.head group;
-        in
-        lib.throwIf (lib.any (object: object != first) (lib.tail group)) ''
-          kubernetes.importedObjects holds ${toString (lib.length group)} different objects with the identity ${identity}.
-        '' first
-      ) (lib.groupBy identityOf cfg.importedObjects);
+      isListDef = def: lib.isList def.value;
+      indexed = lib.imap0 (index: def: { inherit index def; }) defs;
+      lists = lib.filter (entry: isListDef entry.def) indexed;
+      byIdentity =
+        lib.mapAttrs
+          (
+            identity: group:
+            let
+              first = lib.head group;
+            in
+            lib.throwIf (lib.any (entry: entry.object != first.object) (lib.tail group)) ''
+              kubernetes.objects has ${toString (lib.length group)} different objects with the identity ${identity}, from:
+              ${lib.concatMapStringsSep "\n" (entry: "  ${entry.file}") group}
+            '' first.object
+          )
+          (
+            lib.groupBy (entry: identityOf entry.object) (
+              lib.concatMap (
+                entry:
+                map (object: {
+                  inherit (entry.def) file;
+                  inherit object;
+                }) entry.def.value
+              ) lists
+            )
+          );
+      tree =
+        lib.mapAttrs
+          (
+            _: lib.mapAttrs (_: objects: lib.listToAttrs (map (o: lib.nameValuePair o.metadata.name o) objects))
+          )
+          (
+            lib.mapAttrs (_: lib.groupBy (object: resolved.keyFor (groupKindOf object))) (
+              lib.groupBy (object: object.metadata.namespace or "none") (lib.attrValues byIdentity)
+            )
+          );
+      first = (lib.head lists).index;
     in
-    lib.mapAttrs
-      (
-        _: lib.mapAttrs (_: objects: lib.listToAttrs (map (o: lib.nameValuePair o.metadata.name o) objects))
-      )
-      (
-        lib.mapAttrs (_: lib.groupBy (object: resolved.keyFor (groupKindOf object))) (
-          lib.groupBy (object: object.metadata.namespace or "none") (lib.attrValues byIdentity)
-        )
-      );
+    if lists == [ ] then
+      defs
+    else
+      lib.concatMap (
+        entry:
+        if entry.index == first then
+          [
+            {
+              inherit (entry.def) file;
+              value = tree;
+            }
+          ]
+        else
+          lib.optional (!isListDef entry.def) entry.def
+      ) indexed;
+
+  # The objects of every list definition, read before the tree merges, so
+  # their CRDs reach `apiResources` without a loop through `keyFor`.
+  objectListDefinitions = lib.concatMap (
+    def: lib.optionals (lib.isList def.value) def.value
+  ) options.kubernetes.objects.definitionsWithLocations;
+
+  # The tree type, which also takes a list of complete objects as a
+  # definition. Not `types.coercedTo`, which converts each definition alone.
+  objectsType =
+    tree:
+    tree
+    // {
+      description = "list of complete objects, or ${tree.description}";
+      check = {
+        __functor = _: value: lib.isList value || tree.check value;
+        isV2MergeCoherent = true;
+      };
+      merge = rec {
+        __functor =
+          self: loc: defs:
+          (self.v2 { inherit loc defs; }).value;
+        v2 =
+          { loc, defs }:
+          tree.merge.v2 {
+            inherit loc;
+            defs = fileObjectLists defs;
+          };
+      };
+      substSubModules = m: objectsType (tree.substSubModules m);
+    };
 
   # Two definitions of one identity: two keys for one group and kind (an
   # alias and a GroupKind string), two attribute names with one
@@ -700,119 +770,121 @@ in
       # creating it when that module stops shipping it. See
       # lib/conditionalAttrsOf.nix. A definition with no marker takes a fast
       # path and behaves exactly as `attrsOf` did.
-      type = lib.conditionalAttrsOf (
-        lib.types.submodule (
-          { name, ... }:
-          let
-            namespace = name;
-          in
-          {
-            freeformType = lib.conditionalAttrsOf (
-              lib.types.submodule (
-                { name, ... }:
-                let
-                  key = name;
-                  gk = resolved.resolveKey key;
-                in
-                {
-                  freeformType = lib.conditionalAttrsOf (
-                    lib.types.submodule (
-                      { name, ... }:
-                      {
-                        freeformType = ekn.lib.kubeValueType;
-                        options = {
-                          ekn = lib.mkOption {
-                            type = lib.types.submodule {
-                              # `gitOpsTarget` was the old name. The alias
-                              # lives inside the submodule because a
-                              # top-level rename cannot reach an option
-                              # declared in one.
-                              imports = [
-                                (deprecatedAlias [ "gitOpsTarget" ] [ "deploymentUnit" ])
-                              ];
-                              options = {
-                                deploymentUnit = lib.mkOption {
-                                  type = lib.types.nullOr lib.types.str;
-                                  default = null;
-                                  description = ''
-                                    Name of the `deployment.units.<name>` this object routes
-                                    to. Deliberately single-valued, not a list: an object
-                                    synced by two GitOps targets at once means two
-                                    controllers independently reconciling (and potentially
-                                    pruning) the same resource.
+      type = objectsType (
+        lib.conditionalAttrsOf (
+          lib.types.submodule (
+            { name, ... }:
+            let
+              namespace = name;
+            in
+            {
+              freeformType = lib.conditionalAttrsOf (
+                lib.types.submodule (
+                  { name, ... }:
+                  let
+                    key = name;
+                    gk = resolved.resolveKey key;
+                  in
+                  {
+                    freeformType = lib.conditionalAttrsOf (
+                      lib.types.submodule (
+                        { name, ... }:
+                        {
+                          freeformType = ekn.lib.kubeValueType;
+                          options = {
+                            ekn = lib.mkOption {
+                              type = lib.types.submodule {
+                                # `gitOpsTarget` was the old name. The alias
+                                # lives inside the submodule because a
+                                # top-level rename cannot reach an option
+                                # declared in one.
+                                imports = [
+                                  (deprecatedAlias [ "gitOpsTarget" ] [ "deploymentUnit" ])
+                                ];
+                                options = {
+                                  deploymentUnit = lib.mkOption {
+                                    type = lib.types.nullOr lib.types.str;
+                                    default = null;
+                                    description = ''
+                                      Name of the `deployment.units.<name>` this object routes
+                                      to. Deliberately single-valued, not a list: an object
+                                      synced by two GitOps targets at once means two
+                                      controllers independently reconciling (and potentially
+                                      pruning) the same resource.
 
-                                    The field itself is EKN-only and is stripped before
-                                    Kubernetes manifests are rendered. Its *value* is not:
-                                    the object's copy in `kubernetes.deploymentUnits` carries
-                                    it in the `ekn.dev/deployment-unit` label, so the unit an
-                                    object belongs to survives to the cluster whatever
-                                    applies it. The copy in `kubernetes.generated` is
-                                    unstamped, as it is for every other per-unit label.
-                                  '';
-                                };
-                                novalidate = lib.mkOption {
-                                  type = lib.types.bool;
-                                  default = false;
-                                  description = ''
-                                    Skip this object in `ekn validate`'s ephemeral
-                                    etcd+kube-apiserver harness. For objects that can never
-                                    be meaningfully verified there regardless of manifest
-                                    correctness -- e.g. an aggregated APIService, whose
-                                    backing Service/Pod never actually runs in a throwaway,
-                                    single-shot apiserver with no controllers or kubelets,
-                                    so the apiserver 500s/503s on it (or on discovery calls
-                                    that touch it) no matter what. Applied for real via
-                                    `ekn kubeapply`/GitOps as normal; this only affects the
-                                    validation harness.
-                                  '';
+                                      The field itself is EKN-only and is stripped before
+                                      Kubernetes manifests are rendered. Its *value* is not:
+                                      the object's copy in `kubernetes.deploymentUnits` carries
+                                      it in the `ekn.dev/deployment-unit` label, so the unit an
+                                      object belongs to survives to the cluster whatever
+                                      applies it. The copy in `kubernetes.generated` is
+                                      unstamped, as it is for every other per-unit label.
+                                    '';
+                                  };
+                                  novalidate = lib.mkOption {
+                                    type = lib.types.bool;
+                                    default = false;
+                                    description = ''
+                                      Skip this object in `ekn validate`'s ephemeral
+                                      etcd+kube-apiserver harness. For objects that can never
+                                      be meaningfully verified there regardless of manifest
+                                      correctness -- e.g. an aggregated APIService, whose
+                                      backing Service/Pod never actually runs in a throwaway,
+                                      single-shot apiserver with no controllers or kubelets,
+                                      so the apiserver 500s/503s on it (or on discovery calls
+                                      that touch it) no matter what. Applied for real via
+                                      `ekn kubeapply`/GitOps as normal; this only affects the
+                                      validation harness.
+                                    '';
+                                  };
                                 };
                               };
+                              default = { };
+                              description = "EKN-only metadata for this Kubernetes object.";
                             };
-                            default = { };
-                            description = "EKN-only metadata for this Kubernetes object.";
-                          };
 
-                          apiVersion = lib.mkOption {
-                            type = lib.types.str;
-                            default = if gk == null then throw (resolved.ambiguous key) else resolved.apiVersionOf gk;
-                          };
-                          kind = lib.mkOption {
-                            type = lib.types.str;
-                            default = if gk == null then key else gk.kind;
-                          };
-                          metadata = lib.mkOption {
-                            type = lib.types.submodule {
-                              freeformType = ekn.lib.kubeValueType;
-                              options = {
-                                name = lib.mkOption {
-                                  type = lib.types.str;
-                                  default = name;
-                                };
-                                labels = lib.mkOption {
-                                  type = labelsAnnotationsType;
-                                  default = { };
-                                };
-                                annotations = lib.mkOption {
-                                  type = labelsAnnotationsType;
-                                  default = { };
+                            apiVersion = lib.mkOption {
+                              type = lib.types.str;
+                              default = if gk == null then throw (resolved.ambiguous key) else resolved.apiVersionOf gk;
+                            };
+                            kind = lib.mkOption {
+                              type = lib.types.str;
+                              default = if gk == null then key else gk.kind;
+                            };
+                            metadata = lib.mkOption {
+                              type = lib.types.submodule {
+                                freeformType = ekn.lib.kubeValueType;
+                                options = {
+                                  name = lib.mkOption {
+                                    type = lib.types.str;
+                                    default = name;
+                                  };
+                                  labels = lib.mkOption {
+                                    type = labelsAnnotationsType;
+                                    default = { };
+                                  };
+                                  annotations = lib.mkOption {
+                                    type = labelsAnnotationsType;
+                                    default = { };
+                                  };
                                 };
                               };
+                              default = { };
                             };
-                            default = { };
                           };
-                        };
-                        config = lib.mkMerge [
-                          (lib.mkIf (namespace != "none") {
-                            metadata.namespace = lib.mkDefault namespace;
-                          })
-                        ];
-                      }
-                    )
-                  );
-                }
-              )
-            );
-          }
+                          config = lib.mkMerge [
+                            (lib.mkIf (namespace != "none") {
+                              metadata.namespace = lib.mkDefault namespace;
+                            })
+                          ];
+                        }
+                      )
+                    );
+                  }
+                )
+              );
+            }
+          )
         )
       );
 
@@ -823,6 +895,12 @@ in
         kind is automatically injected
         metadata.name is automatically injected
         metadata.namespace is automatically injected if namespace isn't "none"
+
+        A definition can also be a list of complete objects, as `importYaml`
+        and `pkgs.renderChart` return. easykubenix files each one under its
+        namespace, its alias, bare kind or GroupKind string, and its name, so a
+        tree definition at that path merges with it. Two equal objects with
+        one identity are one object; two different ones are an error.
       '';
       example = {
         kubernetes.objects.none.Namespace.easykubenix = { };
@@ -859,24 +937,6 @@ in
         `ekn.deploymentUnit` GitOps routing and the final YAML render, just
         skips generators/transformers/filters and the auto-defaulting
         `kubernetes.objects` provides.
-      '';
-    };
-
-    importedObjects = lib.mkOption {
-      type = lib.types.listOf lib.types.attrs;
-      default = [ ];
-      description = ''
-        Complete objects from an import (`importYaml`, `importHelm`,
-        `pkgs.renderChart`), each with its apiVersion and kind. easykubenix
-        files each one under `kubernetes.objects.<namespace>.<key>.<name>`,
-        where `<key>` is its alias, its bare kind, or its GroupKind string.
-        A definition at that path merges with it.
-
-        Two equal objects with one identity are one object. Two that differ
-        are an evaluation error.
-
-        A CustomResourceDefinition here or in `kubernetes.crds` fills
-        `apiResources`.
       '';
     };
 
@@ -1017,8 +1077,8 @@ in
         GroupResource string (`deployments.apps`, `pods`,
         `clusters.postgresql.cnpg.io`), which is a CRD's `metadata.name`.
         Filled from `apiMappingFile` and from every CustomResourceDefinition in
-        `crds` and `importedObjects`, but not from one in `objects`: those
-        keys depend on this option.
+        `crds` or in a list definition of `objects`. Not from one in a tree
+        definition of `objects`, because those keys depend on this option.
       '';
     };
 
@@ -1411,14 +1471,12 @@ in
         lib.listToAttrs (
           map kindsLib.crdResource (
             lib.filter (object: object.kind or null == "CustomResourceDefinition") (
-              cfg.crds ++ cfg.importedObjects
+              cfg.crds ++ objectListDefinitions
             )
           )
         )
       ))
     ];
-
-    objects = importedTree;
 
     generated = checked finalised;
 
