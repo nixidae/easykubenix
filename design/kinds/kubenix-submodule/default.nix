@@ -1,9 +1,12 @@
 # Checks and measurements for ./module.nix against the real easykubenix.
 #
 #   nix eval --impure --json --expr \
-#     'import ./design/kinds/kubenix-submodule { kubenix = <checkout>; case = "<case>"; }'
+#     'import ./design/kinds/kubenix-submodule { kubenixSrc = <checkout or null>; case = "<case>"; }'
+#
+# `kubenixSrc` reaches the module through easykubenix's existing `specialArgs`
+# parameter, which is what a `kubenixSrc ? null` argument would forward.
 {
-  kubenix,
+  kubenixSrc ? null,
   case,
   n ? 0,
 }:
@@ -11,7 +14,7 @@ let
   sources = import ../../../nix/sources.nix;
   pkgs = import sources.nixpkgs { };
   inherit (pkgs) lib;
-  bridge = import ./module.nix { inherit kubenix; };
+  bridge = ./module.nix;
 
   # N plain easykubenix ConfigMaps, so a run has work of its own to do.
   plain = {
@@ -20,7 +23,12 @@ let
     );
   };
 
-  ekn = modules: import ../../../default.nix { inherit pkgs modules; };
+  ekn =
+    modules:
+    import ../../../default.nix {
+      inherit pkgs modules;
+      specialArgs = { inherit kubenixSrc; };
+    };
   generated =
     modules: builtins.stringLength (builtins.toJSON (ekn modules).config.kubernetes.generated);
   docs = modules: lib.length (lib.optionAttrSetToDocList (ekn modules).options);
@@ -28,8 +36,8 @@ let
   instance = {
     kubenix.instances.web = {
       imports = [
-        "${kubenix}/docs/content/examples/deployment/module.nix"
-        "${kubenix}/docs/content/examples/custom-resources/module.nix"
+        "${kubenixSrc}/docs/content/examples/deployment/module.nix"
+        "${kubenixSrc}/docs/content/examples/custom-resources/module.nix"
         (
           { config, eknConfig, ... }:
           {
@@ -63,6 +71,7 @@ let
 in
 {
   # Cost: easykubenix alone, then with the bridge imported and no instance.
+  # Both also run with `kubenixSrc = null`.
   without = generated [ plain ];
   unused = generated [
     plain
@@ -72,6 +81,12 @@ in
   docsUnused = docs [
     plain
     bridge
+  ];
+
+  # An instance with `kubenixSrc = null`: the error names the argument.
+  missingSrc = generated [
+    bridge
+    { kubenix.instances.web.kubernetes.resources.configMaps.x.data.a = "1"; }
   ];
 
   instance =

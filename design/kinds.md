@@ -198,6 +198,19 @@ instance is a whole kubenix configuration with kubenix's types.
   `kubernetes.objects`, under the key an import would choose.
 - The option is `visible = "shallow"`, so documentation does not walk
   kubenix's generated tree.
+- The kubenix source comes from a `kubenixSrc ? null` argument of
+  `default.nix`, passed to modules as a special argument. `default.nix`
+  already forwards its special arguments to every nested instance
+  (`callerSpecialArgs`). With `null`, the option still exists and evaluates.
+  An instance then fails and names the argument:
+
+  ```
+  error: `kubenix.instances' is set, but easykubenix was called without
+  `kubenixSrc'. Pass the kubenix source:
+  ```
+
+  The prototype passes it through the existing `specialArgs` parameter,
+  which is what the new argument would do.
 
 `design/kinds/kubenix-submodule/` runs this inside the real easykubenix.
 One instance imports kubenix's `deployment` and `custom-resources` examples
@@ -376,6 +389,7 @@ the import keys and the identity check. `objects` keeps its current type.
    part.
 9. **kubenix compatibility as `kubenix.instances.<name>`, a submodule.**
    Recommended, after the kinds work, because it reuses key resolution.
-   kubenix's types stay intact, and an unused option costs nothing. Open:
-   how the user provides the kubenix source, and whether `eknConfig` stays
-   read-only or an instance may also write easykubenix options.
+   kubenix's types stay intact, and an unused option costs nothing. The
+   source comes from `kubenixSrc ? null` on `default.nix`. Open: whether
+   `eknConfig` stays read-only or an instance may also write easykubenix
+   options. Recommended: read-only, so the dependency runs one way.
