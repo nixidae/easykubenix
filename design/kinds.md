@@ -105,22 +105,45 @@ does not hold works only with an explicit `apiVersion`, as it does today.
 
 ## Imports
 
-`importYaml` and `importHelm` know each object's group and kind before
-evaluation. They file it under:
+An import hands `kubernetes.objects` a **list of complete objects** as a
+definition. `importYaml`, `importHelm` and `pkgs.renderChart` all return one,
+and a user can write one by hand:
+
+```nix
+kubernetes.objects = lib.mkMerge [
+  rendered.objects                                # a list of complete objects
+  { app.Deployment.web.spec.replicas = 3; }        # the tree, as before
+];
+```
+
+The `objects` type's merge files every object of every list definition under:
 
 1. its alias, when one is declared (two aliases for one `GroupKind` are an
    error),
 2. else the bare kind, when the bare kind resolves to this group,
 3. else the `GroupKind` string.
 
-So two charts that both ship `Cluster` import with no declaration: their
-objects land at `"Cluster.postgresql.cnpg.io"` and `"Cluster.k8s.mariadb.com"`.
+The result is one tree definition, in the place of the first list, so a tree
+definition at the same path merges with it: patches reach imported objects,
+through an alias too. So two charts that both ship `Cluster` import with no
+declaration: their objects land at `"Cluster.postgresql.cnpg.io"` and
+`"Cluster.k8s.mariadb.com"`.
 
-`importYaml` has no `config`, so it takes the `kubernetes` config as a new
-argument. `helm.nix` and `importyaml.nix` pass it. `kindAliases` and
-`apiResources` must never read `objects`, `resources` or `generated`: the
-import reads them to choose its keys. CRDs reach `apiResources` from the
-import's own parse.
+Duplicates are checked across all list definitions before the tree merge,
+which would concatenate their lists. Two equal objects with one identity are
+one object (two Helm releases into one namespace both bring the Namespace);
+two different ones fail and name both files.
+
+There is one option to write and to read. An earlier version of the spike had
+a separate `importedObjects` list; it was dropped for that reason, and it also
+cost more (+84.7k values on nixlab3 against +57.8k).
+
+No importer chooses a key, so `importYaml` takes no `kubernetes` argument.
+The resolver reads `apiResources`, `apiMappings` and `kindAliases` only.
+`apiResources` gets CRDs from `kubernetes.crds` and from the raw list
+definitions of `objects` (`options.kubernetes.objects.definitionsWithLocations`),
+never from the merged tree, whose keys depend on it. A CRD written as a tree
+definition does not fill `apiResources`.
 
 ## Hand-written objects are not moved
 
@@ -497,14 +520,56 @@ its `--root=/nix/store/...-solid-kubernetes-docs-0` path and so its manifest
 hash. The two docs derivations differ in one input, `easykubenix-docs`, the
 option documentation the spike changes.
 
-The `torg` Deployment differed too in some dumps, but not by arm. Four
-evaluations alternating baseline and spike within two minutes gave one `torg`
-path, and that path differed from the one 20 minutes earlier. Something in
-`torg`'s inputs outside easykubenix changed over that time; the source was not
-found. Compare arms close together.
+The `torg` Deployment differed too in some dumps, but not by arm. Another
+session was committing torg work in the same solid-kubernetes working copy at
+the time. The driver now takes one solid-kubernetes checkout per arm (jj
+workspaces at a fixed revision) for that reason.
 
 Two harness traps, both fixed in `spikebench/default.nix`: interpolating a
 checkout path (`"${arm}/default.nix"`) copies it into the store on every run,
 which added 0.24 s to the larger arm with identical counters; and the priority
 on `apiMappingFile`'s entries has to be per entry, because the option filters
 a whole definition by priority before `attrsOf` splits it.
+
+### Lists as definitions, and solid-kubernetes
+
+The second spike step (`spike: kubernetes.objects takes a list of complete
+objects`) moves every key choice into `kubernetes.nix`, as described under
+Imports. `pkgs.renderChart` returns `{ objects; crds; }` from
+`ekn-yaml2json --shape list` and splits CRDs in Nix.
+
+solid-kubernetes needs a change for it, on its own spike
+(`~/Code/solid-kubernetes-kinds`, `spike: chart renders go to
+kubernetes.resources as lists`): `solidLib.renderChart` stamps namespaces on
+the list and still builds `rendered.resources` as a namespace/Kind/name tree
+for the components that read or patch one object; `mkChartComponent`,
+cloudnative-pg and rabbitmq deliver lists; kafka reads its ConfigMap from the
+list; `mkComponent`'s definition walk tags list objects by their own `kind`.
+
+nixlab3 against baseline, with each arm's own solid-kubernetes checkout:
+the same 3192 objects (only the docs site's Deployment differs, as above);
+values +57.8k (+0.17 %), calls +36.1k (+0.25 %), allocated +2.7 MiB. CPU was
+not measurable: the machine had a load average of 35 on 16 cores, and one
+run blocked for 22 minutes at 0.2 % CPU before it was stopped. That block is
+outside easykubenix and under investigation separately.
+
+## To land
+
+The spike commits are not for landing as they stand. A landable change needs:
+
+1. The `apiMappings` deprecation warning (decision 10).
+2. Python identity keys with the group (decision 8): `_object_key`, the
+   `desired` maps, the prune resolver's `already` set, and `kluctl.nix`'s
+   excluded-unit set.
+3. `ekn` prune reads `apiResources` (with `apiMappings` overrides) for the
+   kinds to scan. Until then a spike build scans fewer kinds: do not deploy
+   from it.
+4. A check of `kindAliases` values: an alias whose GroupKind no
+   `apiResources` entry serves fails with the alias named, not with
+   "No apiResources entry" from the first object that needs an apiVersion.
+5. The kubeapply gate (`nix build --file ./checks.nix kubeapply`), because of
+   item 3.
+6. solid-kubernetes' list change lands with it, in the same umbrella update:
+   `pkgs.renderChart` no longer returns `resources`, and `importYaml` no
+   longer returns a tree. Then solid can drop most of its 80 `apiMappings`.
+7. This document trimmed to the decisions and the measurements.
