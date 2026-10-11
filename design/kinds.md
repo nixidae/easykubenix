@@ -146,6 +146,62 @@ Declaring an alias moves imported objects. After `kindAliases.PGCluster`
 exists, the CNPG objects are at `objects.x.PGCluster.*`. A module that reads
 `objects.x.Cluster.db` gets a missing-attribute error, not a wrong value.
 
+## kubenix
+
+[kubenix](https://github.com/hall/kubenix) is what Nix users already write
+Kubernetes in. Read at `6a37ce99125b`.
+
+| | kubenix | this design |
+| --- | --- | --- |
+| Main path | `kubernetes.api.resources.<group>.<version>.<kind>.<name>`, core group spelled `core` | `kubernetes.objects.<namespace>.<key>.<name>` |
+| Short path | `kubernetes.resources.<attrName>.<name>` | the same path, with an alias or a bare kind as the key |
+| Name you choose | `customTypes.*.attrName`, bound to group, version and kind | `kindAliases.<alias>`, bound to a `GroupKind` string |
+| Built-in names | generated camelCase plurals: `deployments`, `configMaps` | the kind: `Deployment`, `ConfigMap` |
+| Namespace | `metadata.namespace`, default `kubernetes.namespace` | the path |
+| Identity | includes the version | `(group, kind, namespace, name)` |
+
+kubenix's `attrName` is the same idea as `kindAliases`: a name you choose,
+bound to a type. This design takes the idea and leaves the version out of the
+binding.
+
+### Compatibility through a separate evaluation
+
+kubenix and easykubenix both declare `kubernetes.resources`, `objects`,
+`generated`, `namespace` and `imports`, with different meanings. A kubenix
+module therefore cannot import into an easykubenix evaluation. It runs in its
+own, and easykubenix imports the result the way it imports a Helm chart:
+
+1. A new option, `kubenix.modules`, takes kubenix modules unchanged.
+2. easykubenix evaluates them with kubenix's own `lib/eval-modules.nix`, not
+   its flake-compat `default.nix`. The user provides the kubenix source, so
+   easykubenix does not depend on it.
+3. kubenix's `config.kubernetes.objects` go through the import path above.
+   They land under an alias, a bare kind or a `GroupKind` string, and an
+   easykubenix module patches them there.
+4. kubenix's `customTypes` become `apiResources` entries. A custom kind then
+   resolves by its bare name.
+
+`design/kinds/kubenix.nix` runs this. It evaluates kubenix's `deployment`
+and `custom-resources` examples unchanged, with the `containers.nginx` attribute
+form and a custom `CronTab`. It imports them and applies an easykubenix
+`mkForce` to the kubenix Deployment. Result: five objects in namespace `web`,
+keys `ConfigMap`, `CronTab`, `Deployment` and `Service`, and `replicas = 3`.
+The whole evaluation takes 0.73 s.
+
+```
+nix eval --impure --json --expr 'import ./design/kinds/kubenix.nix { kubenix = <checkout>; }'
+```
+
+What stays inside kubenix: its typed API (generated per Kubernetes version,
+1.19 to 1.36), its submodules, its Helm module and every read across kubenix
+modules. An easykubenix patch lands after kubenix's type check and is not
+checked by it. kubenix's `kubenix/project-name` and `kubenix/k8s-version`
+annotations go through unchanged.
+
+Rejected: easykubenix accepting kubenix's own paths in the same evaluation.
+The option names conflict, and the value of kubenix is its generated, typed
+API. A copy of that API is a second kubenix.
+
 ## Migration
 
 - `apiMappings.<Kind> = "<group>/<version>"` stays as a deprecated input. It
@@ -201,3 +257,8 @@ the import keys and the identity check. `objects` keeps its current type.
    It looks up the attribute paths only when it fires.
 8. **Python identity keys with the group.** A separate change after the Nix
    part.
+9. **kubenix compatibility through a separate evaluation.** Recommended, as a
+   change after the kinds work, because it reuses the import path. The
+   option shape is open: one `kubenix.modules` list, or named instances like
+   `importyaml.<name>` so that two kubenix projects can differ in
+   `kubernetes.version`.

@@ -143,6 +143,20 @@ let
   };
 in
 {
+  # An APIResourceList (`kubectl api-resources --output=json`) as
+  # `apiResources` definitions, keyed by GroupResource string. `group` is
+  # omitted for the core group (`omitempty`).
+  apiResourceList =
+    file:
+    lib.listToAttrs (
+      map (
+        resource:
+        lib.nameValuePair (resource.name + lib.optionalString (resource ? group) ".${resource.group}") (
+          lib.mapAttrs (_: lib.mkOptionDefault) ({ group = ""; } // resource)
+        )
+      ) (lib.importJSON file).resources
+    );
+
   # Stand-in for `importYaml`. CRDs feed `apiResources`; every other object is
   # filed under `keyFor`. `cfg` is the same fixpoint the CRDs feed, and nothing
   # here reads `objects`.

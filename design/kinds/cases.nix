@@ -56,16 +56,7 @@ let
     (object "k8s.mariadb.com/v1alpha1" { replicas = 2; })
   ];
 
-  # The shipped APIResourceList, keyed by GroupResource string. `group` is
-  # omitted for the core group (`omitempty`).
-  shipped = lib.listToAttrs (
-    map (
-      resource:
-      lib.nameValuePair (resource.name + lib.optionalString (resource ? group) ".${resource.group}") (
-        lib.mapAttrs (_: lib.mkOptionDefault) ({ group = ""; } // resource)
-      )
-    ) (lib.importJSON ../../easykubenix/apiResources/v1.33.json).resources
-  );
+  shipped = prototype.apiResourceList ../../easykubenix/apiResources/v1.33.json;
 
   base =
     { config, ... }:
