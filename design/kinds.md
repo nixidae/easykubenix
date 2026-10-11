@@ -225,6 +225,38 @@ A typed patch through `kubenix.instances.web.kubernetes.resources...` and an
 untyped one through `kubernetes.objects.web.Deployment.nginx` both apply. The
 result is five objects in namespace `web`.
 
+**Reads across the boundary.** `design/kinds/kubenix-submodule/cycles.nix`
+runs six cases:
+
+| Case | Result |
+| --- | --- |
+| (a) a kubenix value copies a field of an easykubenix object | works |
+| (b) a kubenix resource exists only when an easykubenix object does | infinite recursion |
+| (c) a kubenix value counts `eknConfig.kubernetes.generated` | infinite recursion |
+| (d) an easykubenix value reads a kubenix value | works |
+| (e) (a) and (d) at once | works |
+| (f) kubenix's `kubernetes.namespace` comes from an easykubenix object | infinite recursion |
+
+The rule: values cross in both directions, and keys do not. easykubenix's
+object set includes the instance's objects. So when an instance decides
+which objects it has, or where they go, from that set, the set depends on
+itself. The module system has no answer to that. The same rule holds inside
+easykubenix without kubenix, which is why `mkIfExists` exists. Reads of other
+easykubenix options, such as `kubernetes.clusterInfo`, are not affected.
+
+Two things in the bridge keep (a) working, and both are easy to undo:
+
+- It reads kubenix's typed `api.resources` tree, not kubenix's
+  `kubernetes.objects`. That option's `apply` runs `unique`, which compares
+  whole objects and so forces every value.
+- It takes each key from the typed `metadata`, and converts the object inside
+  the value. Converting it first forces every field, and a field typed
+  `attrsOf`, like a ConfigMap's `data`, forces each of its values to learn
+  its keys.
+
+kubenix's `enableHashedNames` puts a hash of a ConfigMap's or Secret's content
+into its name, so with it on, (a) recurses for those two kinds.
+
 **An unused submodule costs nothing.** With 2000 easykubenix objects and the
 option imported but no instance, the evaluator counts 307 more values, 248
 more thunks and 132 more function calls than without it, out of 10.2 million
