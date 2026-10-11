@@ -472,6 +472,37 @@ CRDs: one module evaluation per CRD. `attrsOf (attrsOf anything)` cost +539k
 and +26 MiB. The spike uses `attrsOf attrs`. Its cost is that an entry
 overridden at a higher priority is restated whole.
 
+**solid-kubernetes' `nixlab3`.** The live lab environment, forced the way
+`ekn kubeapply` reads it (`generated` and every deployment unit's objects),
+through the umbrella's working-copy override (`SOLID_DEV_CHECKOUTS`,
+`UMBRELLA_DEV=easykubenix`). `spikebench/solid.py` moves the easykubenix
+working copy between the two revisions before each run; every other source
+comes from the umbrella's lock in both arms. Three interleaved runs each:
+
+| | baseline | spike |
+| --- | --- | --- |
+| evaluator CPU, median (range) | 21.79 s (21.50–22.74) | 22.27 s (20.97–22.28) |
+| values | 35,027,127 | 35,063,430 (+0.10 %) |
+| function calls | 14,658,314 | 14,681,142 (+0.16 %) |
+| allocated | 2321.7 MiB | 2323.6 MiB |
+| peak RSS | 2042 MiB | 2004–2009 MiB |
+
+The CPU ranges overlap. It evaluates with no change to solid-kubernetes,
+including its 80 `apiMappings` definitions and `mkComponent`'s harvest of
+them.
+
+**Compatibility.** Both arms render the same 3192 objects (`generated` and
+every unit). One differs because of the spike: the docs site's Deployment, in
+its `--root=/nix/store/...-solid-kubernetes-docs-0` path and so its manifest
+hash. The two docs derivations differ in one input, `easykubenix-docs`, the
+option documentation the spike changes.
+
+The `torg` Deployment differed too in some dumps, but not by arm. Four
+evaluations alternating baseline and spike within two minutes gave one `torg`
+path, and that path differed from the one 20 minutes earlier. Something in
+`torg`'s inputs outside easykubenix changed over that time; the source was not
+found. Compare arms close together.
+
 Two harness traps, both fixed in `spikebench/default.nix`: interpolating a
 checkout path (`"${arm}/default.nix"`) copies it into the store on every run,
 which added 0.24 s to the larger arm with identical counters; and the priority

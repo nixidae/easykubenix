@@ -17,4 +17,9 @@ let
     units = builtins.mapAttrs (_: unit: unit.objects) kubernetes.deploymentUnits;
   };
 in
-if output == "hash" then builtins.hashString "sha256" json else builtins.stringLength json
+if output == "hash" then
+  builtins.hashString "sha256" json
+else if output == "json" then
+  json
+else
+  builtins.stringLength json
