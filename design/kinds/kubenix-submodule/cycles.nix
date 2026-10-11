@@ -16,7 +16,7 @@ let
   };
   # A kubenix object for easykubenix to read.
   kubenixSide = {
-    kubenix.instances.web.kubernetes.resources.configMaps.k.data.a = "from-kubenix";
+    kubenix.kubernetes.resources.configMaps.k.data.a = "from-kubenix";
   };
 
   cases = {
@@ -27,7 +27,7 @@ let
         (
           { ... }:
           {
-            kubenix.instances.web =
+            kubenix =
               { eknConfig, ... }:
               {
                 kubernetes.resources.configMaps.copy.data.x =
@@ -43,7 +43,7 @@ let
       modules = [
         eknSide
         {
-          kubenix.instances.web =
+          kubenix =
             { eknConfig, ... }:
             {
               kubernetes.resources.configMaps = lib.mkIf (eknConfig.kubernetes.objects.default ? ConfigMap) {
@@ -59,7 +59,7 @@ let
       modules = [
         eknSide
         {
-          kubenix.instances.web =
+          kubenix =
             { eknConfig, ... }:
             {
               kubernetes.resources.configMaps.count.data.n = toString (lib.length eknConfig.kubernetes.generated);
@@ -76,7 +76,7 @@ let
           { config, ... }:
           {
             kubernetes.objects.default.ConfigMap.reader.data.a =
-              config.kubenix.instances.web.kubernetes.api.resources.core.v1.ConfigMap.k.data.a;
+              config.kubenix.kubernetes.api.resources.core.v1.ConfigMap.k.data.a;
           }
         )
       ];
@@ -96,7 +96,7 @@ let
       modules = [
         eknSide
         {
-          kubenix.instances.web =
+          kubenix =
             { eknConfig, ... }:
             {
               kubernetes.namespace = eknConfig.kubernetes.objects.none.Namespace.app.metadata.name;

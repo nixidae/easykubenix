@@ -186,26 +186,28 @@ Three facts make kubenix modules cheap to take in:
 
 kubenix and easykubenix both declare `kubernetes.resources`, `objects`,
 `generated`, `namespace` and `imports`, with different meanings. A submodule
-keeps the two apart with no rewriting: `kubenix.instances.<name>` is a
-`submoduleWith` whose modules are kubenix's own `k8s` module, so each
-instance is a whole kubenix configuration with kubenix's types.
+keeps the two apart with no rewriting: `kubenix` is a `submoduleWith` whose
+modules are kubenix's own `k8s` module, so it is one whole kubenix
+configuration with kubenix's types. One, because that is how kubenix and
+easykubenix are each used. The option is `nullOr` that submodule, default
+`null`, so defining anything under `kubenix` is what turns it on.
 
 - Its special arguments are what kubenix's `lib/eval-modules.nix` passes:
   `kubenix` (`lib`, `modules`, `evalModules`), `pkgs`, and `lib` extended with
   kubenix's `upstreamables.nix`. One more, `eknConfig`, is the easykubenix
   configuration around it, read-only.
-- Each instance's `kubernetes.objects` become easykubenix
-  `kubernetes.objects`, under the key an import would choose.
+- kubenix's objects become easykubenix `kubernetes.objects`, under the key an
+  import would choose.
 - The option is `visible = "shallow"`, so documentation does not walk
   kubenix's generated tree.
 - The kubenix source comes from a `kubenixSrc ? null` argument of
   `default.nix`, passed to modules as a special argument. `default.nix`
   already forwards its special arguments to every nested instance
   (`callerSpecialArgs`). With `null`, the option still exists and evaluates.
-  An instance then fails and names the argument:
+  Defining `kubenix` then fails and names the argument:
 
   ```
-  error: `kubenix.instances' is set, but easykubenix was called without
+  error: `kubenix' is set, but easykubenix was called without
   `kubenixSrc'. Pass the kubenix source:
   ```
 
@@ -213,7 +215,7 @@ instance is a whole kubenix configuration with kubenix's types.
   which is what the new argument would do.
 
 `design/kinds/kubenix-submodule/` runs this inside the real easykubenix.
-One instance imports kubenix's `deployment` and `custom-resources` examples
+`kubenix` imports kubenix's `deployment` and `custom-resources` examples
 unchanged, plus a module that:
 
 - adds a container in list form beside the example's attribute-set
@@ -221,7 +223,7 @@ unchanged, plus a module that:
 - reads `config.kubernetes.api.resources.core.v1.ConfigMap.nginx-config.metadata.name`
   and `eknConfig.kubernetes.clusterInfo.ipFamilies`.
 
-A typed patch through `kubenix.instances.web.kubernetes.resources...` and an
+A typed patch through `kubenix.kubernetes.resources...` and an
 untyped one through `kubernetes.objects.web.Deployment.nginx` both apply. The
 result is five objects in namespace `web`.
 
@@ -238,9 +240,8 @@ runs six cases:
 | (f) kubenix's `kubernetes.namespace` comes from an easykubenix object | infinite recursion |
 
 The rule: values cross in both directions, and keys do not. easykubenix's
-object set includes the instance's objects. So when an instance decides
-which objects it has, or where they go, from that set, the set depends on
-itself. The module system has no answer to that. The same rule holds inside
+object set includes kubenix's objects. So when kubenix decides which objects
+it has, or where they go, from that set, the set depends on itself. The module system has no answer to that. The same rule holds inside
 easykubenix without kubenix, which is why `mkIfExists` exists. Reads of other
 easykubenix options, such as `kubernetes.clusterInfo`, are not affected.
 
@@ -258,11 +259,10 @@ kubenix's `enableHashedNames` puts a hash of a ConfigMap's or Secret's content
 into its name, so with it on, (a) recurses for those two kinds.
 
 **An unused submodule costs nothing.** With 2000 easykubenix objects and the
-option imported but no instance, the evaluator counts 307 more values, 248
-more thunks and 132 more function calls than without it, out of 10.2 million
+option imported but left `null`, the evaluator counts 256 more values, 209
+more thunks and 111 more function calls than without it, out of 10.2 million
 values. Allocation is 471.8 MiB in both. Documentation gains one entry,
-`kubenix.instances` itself. An instance in use pays kubenix's own cost per
-object; see below.
+`kubenix` itself. kubenix in use pays its own cost per object; see below.
 
 ### Rejected: rewriting kubenix modules into easykubenix
 
@@ -419,9 +419,10 @@ the import keys and the identity check. `objects` keeps its current type.
    It looks up the attribute paths only when it fires.
 8. **Python identity keys with the group.** A separate change after the Nix
    part.
-9. **kubenix compatibility as `kubenix.instances.<name>`, a submodule.**
+9. **kubenix compatibility as one `kubenix` submodule, `null` by default.**
    Recommended, after the kinds work, because it reuses key resolution.
    kubenix's types stay intact, and an unused option costs nothing. The
-   source comes from `kubenixSrc ? null` on `default.nix`. Open: whether
-   `eknConfig` stays read-only or an instance may also write easykubenix
-   options. Recommended: read-only, so the dependency runs one way.
+   source comes from `kubenixSrc ? null` on `default.nix`. A submodule
+   cannot define options of the configuration around it, so `eknConfig` is
+   read-only by construction: values cross both ways by reading, keys do
+   not cross.

@@ -1,6 +1,9 @@
-# kubenix as a submodule of easykubenix: `kubenix.instances.<name>` is a whole
-# kubenix configuration, typed by kubenix's own modules. Its
-# `kubernetes.objects` become easykubenix `kubernetes.objects`.
+# kubenix as a submodule of easykubenix: `kubenix` is one whole kubenix
+# configuration, typed by kubenix's own modules. Its objects become
+# easykubenix `kubernetes.objects`.
+#
+# `null` until something defines it, so an evaluation that never uses kubenix
+# never evaluates kubenix's modules.
 #
 # `kubenixSrc` is a special argument: the kubenix source, or null. It stands in
 # for a `kubenixSrc ? null` argument of easykubenix's default.nix, which would
@@ -18,7 +21,7 @@ let
       kubenixSrc
     else
       throw ''
-        `kubenix.instances' is set, but easykubenix was called without
+        `kubenix' is set, but easykubenix was called without
         `kubenixSrc'. Pass the kubenix source:
 
           import easykubenix { kubenixSrc = <kubenix checkout>; ... }
@@ -44,7 +47,7 @@ let
       kubenix = kubenixArg;
       inherit pkgs;
       lib = kubenixLib;
-      # Read-only access to the easykubenix configuration around the instance.
+      # Read-only access to the easykubenix configuration around kubenix.
       eknConfig = config;
     };
   };
@@ -87,12 +90,11 @@ let
   #
   # kubenix's `enableHashedNames` puts a hash of the content into a
   # ConfigMap's or Secret's name, so with it a name depends on every value.
-  objects = lib.concatLists (
-    lib.mapAttrsToList (
-      _: instance:
-      let
-        k = instance.kubernetes;
-      in
+  objects =
+    let
+      k = config.kubenix.kubernetes;
+    in
+    lib.optionals (config.kubenix != null) (
       lib.concatLists (
         lib.mapAttrsToList (
           _: type:
@@ -118,17 +120,16 @@ let
           }) hashed
         ) k.api.types
       )
-    ) config.kubenix.instances
-  );
+    );
 in
 {
-  options.kubenix.instances = lib.mkOption {
-    type = lib.types.attrsOf instanceType;
-    default = { };
+  options.kubenix = lib.mkOption {
+    type = lib.types.nullOr instanceType;
+    default = null;
     # Documentation walks a visible option's sub-options. kubenix's
     # generated tree is thousands of options per Kubernetes version.
     visible = "shallow";
-    description = "kubenix configurations, each evaluated with kubenix's own modules.";
+    description = "A kubenix configuration, evaluated with kubenix's own modules.";
   };
 
   config.kubernetes.objects = lib.mkMerge (

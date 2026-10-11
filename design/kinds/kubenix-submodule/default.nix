@@ -34,7 +34,7 @@ let
   docs = modules: lib.length (lib.optionAttrSetToDocList (ekn modules).options);
 
   instance = {
-    kubenix.instances.web = {
+    kubenix = {
       imports = [
         "${kubenixSrc}/docs/content/examples/deployment/module.nix"
         "${kubenixSrc}/docs/content/examples/custom-resources/module.nix"
@@ -63,7 +63,7 @@ let
   };
   patches = {
     # Typed, through kubenix's own option.
-    kubenix.instances.web.kubernetes.resources.deployments.nginx.spec.template.spec.containers.nginx.image =
+    kubenix.kubernetes.resources.deployments.nginx.spec.template.spec.containers.nginx.image =
       lib.mkForce "nginx:1.27";
     # Untyped, through easykubenix's option, after kubenix rendered.
     kubernetes.objects.web.Deployment.nginx.spec.replicas = lib.mkForce 3;
@@ -86,7 +86,7 @@ in
   # An instance with `kubenixSrc = null`: the error names the argument.
   missingSrc = generated [
     bridge
-    { kubenix.instances.web.kubernetes.resources.configMaps.x.data.a = "1"; }
+    { kubenix.kubernetes.resources.configMaps.x.data.a = "1"; }
   ];
 
   instance =
