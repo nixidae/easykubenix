@@ -92,6 +92,15 @@ let
       charts
       { kubernetes.objects.x.Cluster.db3 = { }; }
     ];
+    # Two imports of one identity: equal is one object, different throws.
+    importEqual = [
+      charts
+      { importyaml.again.src = stream "again" [ (object "postgresql.cnpg.io/v1" { instances = 3; }) ]; }
+    ];
+    importDifferent = [
+      charts
+      { importyaml.again.src = stream "again" [ (object "postgresql.cnpg.io/v1" { instances = 4; }) ]; }
+    ];
   };
 
   ekn = import ../../../default.nix {

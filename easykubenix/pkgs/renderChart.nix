@@ -1,7 +1,7 @@
-# Render a chart and return its objects, split into CRDs and everything
-# else. Objects come back exactly as Helm emitted them: routing
-# (`ekn.deploymentUnit`) and annotation stamping are the caller's business,
-# via the transformers seam on `helm.releases`/`importYaml`.
+# Render a chart and return its objects as two lists: `crds` for
+# `kubernetes.crds` and `objects` for `kubernetes.importedObjects`. Objects
+# come back exactly as Helm emitted them: routing (`ekn.deploymentUnit`) and
+# annotation stamping are the caller's business.
 {
   runCommand,
   lib,
@@ -27,15 +27,6 @@
   apiVersions ? null,
 }:
 let
-  # Single switch for every chart's CRD handling: `true` routes CRDs through
-  # `kubernetes.crds` (bypasses kubernetes.objects' per-object submodule
-  # typing entirely); `false` folds them into `resources` like any other
-  # object, so they get full settingsFormat.type checking/mergeability.
-  # Measured cost of `false` on the dynamist environment (371 objects, 78
-  # CRDs): ~12% slower render (~11.4s -> ~12.8s wall), structurally
-  # identical output either way. Flip this one flag to switch every module
-  # at once -- no other file needs to change.
-  crdsBypassTyping = true;
   chartDrv = fetchHelm {
     chart = chart.name;
     repo = chart.repoURL;
@@ -70,29 +61,23 @@ let
       } \
       ${chartDrv} > $out
   '';
-  # `ekn-yaml2json` reads the stream and does the grouping, and this file
-  # takes its answer whole. See lib/parseYamlStream.nix for why go-yaml is
-  # the only reader here.
-  #
-  # The grouping moved out of Nix with it. `lib.foldl' lib.recursiveUpdate`
-  # built the same namespace/kind/name tree, and it *deep-merged* two objects
-  # that shared an identity into one nothing rendered, which then applied
-  # without complaint. The Go side refuses and names the document.
-  #
-  # CustomResourceDefinitions carry enormous OpenAPI schemas. Forcing them
-  # through kubernetes.resources' per-object submodule (settingsFormat.type's
-  # recursive value-checking) costs measurably more eval time (see
-  # `crdsBypassTyping` above), so `--crd-split` files them separately for a
-  # caller to route through `kubernetes.crds`, which skips that machinery.
-  grouped = builtins.fromJSON (
+  # See lib/parseYamlStream.nix for why go-yaml is the only reader here.
+  # A list, not a namespace/kind/name tree: `kubernetes.importedObjects`
+  # chooses each key, and refuses two different objects with one identity.
+  parsed = builtins.fromJSON (
     builtins.readFile (
       runCommand "${name}-rendered.json" { nativeBuildInputs = [ ekn-yaml2json ]; } ''
-        ekn-yaml2json --crd-split=${lib.boolToString crdsBypassTyping} \
-          < ${resourcesYaml} > $out
+        ekn-yaml2json --shape list < ${resourcesYaml} > $out
       ''
     )
   );
+  # CustomResourceDefinitions carry large OpenAPI schemas, and
+  # `kubernetes.crds` keeps them out of `ekn.lib.kubeValueType`'s per-leaf
+  # check. Measured on 371 objects with 78 CRDs: 11.4s, against 12.8s with
+  # the CRDs typed.
+  split = lib.partition (object: object.kind or null == "CustomResourceDefinition") parsed;
 in
 {
-  inherit (grouped) crds resources;
+  crds = split.right;
+  objects = split.wrong;
 }

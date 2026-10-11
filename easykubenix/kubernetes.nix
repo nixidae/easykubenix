@@ -294,6 +294,30 @@ let
       object.metadata.namespace or "none"
     } ${kindsLib.objectName (groupKindOf object) object.metadata.name}";
 
+  # `importedObjects` as one definition of `objects`. One definition and not
+  # one per object, so the merge walks this tree once.
+  importedTree =
+    let
+      byIdentity = lib.mapAttrs (
+        identity: group:
+        let
+          first = lib.head group;
+        in
+        lib.throwIf (lib.any (object: object != first) (lib.tail group)) ''
+          kubernetes.importedObjects holds ${toString (lib.length group)} different objects with the identity ${identity}.
+        '' first
+      ) (lib.groupBy identityOf cfg.importedObjects);
+    in
+    lib.mapAttrs
+      (
+        _: lib.mapAttrs (_: objects: lib.listToAttrs (map (o: lib.nameValuePair o.metadata.name o) objects))
+      )
+      (
+        lib.mapAttrs (_: lib.groupBy (object: resolved.keyFor (groupKindOf object))) (
+          lib.groupBy (object: object.metadata.namespace or "none") (lib.attrValues byIdentity)
+        )
+      );
+
   # Two definitions of one identity: two keys for one group and kind (an
   # alias and a GroupKind string), two attribute names with one
   # `metadata.name`, or a generator's output beside an object. A `throw` over
@@ -838,6 +862,24 @@ in
       '';
     };
 
+    importedObjects = lib.mkOption {
+      type = lib.types.listOf lib.types.attrs;
+      default = [ ];
+      description = ''
+        Complete objects from an import (`importYaml`, `importHelm`,
+        `pkgs.renderChart`), each with its apiVersion and kind. easykubenix
+        files each one under `kubernetes.objects.<namespace>.<key>.<name>`,
+        where `<key>` is its alias, its bare kind, or its GroupKind string.
+        A definition at that path merges with it.
+
+        Two equal objects with one identity are one object. Two that differ
+        are an evaluation error.
+
+        A CustomResourceDefinition here or in `kubernetes.crds` fills
+        `apiResources`.
+      '';
+    };
+
     transformers = lib.mkOption {
       type = lib.types.listOf (lib.types.functionTo lib.types.attrs);
       default = [ ];
@@ -974,7 +1016,9 @@ in
         What the cluster serves, as Kubernetes' `APIResource` records keyed by
         GroupResource string (`deployments.apps`, `pods`,
         `clusters.postgresql.cnpg.io`), which is a CRD's `metadata.name`.
-        Filled from `apiMappingFile` and from every imported CRD.
+        Filled from `apiMappingFile` and from every CustomResourceDefinition in
+        `crds` and `importedObjects`, but not from one in `objects`: those
+        keys depend on this option.
       '';
     };
 
@@ -1352,16 +1396,29 @@ in
 
   config.kubernetes = {
     # A priority per entry, not one around the whole set: the option filters
-    # a whole definition by priority before `attrsOf` splits it, so an import's
-    # empty `mkDefault { }` would drop every entry of this file.
-    apiResources = lib.listToAttrs (
-      map (
-        resource:
-        lib.nameValuePair (
-          resource.name + lib.optionalString ((resource.group or "") != "") ".${resource.group}"
-        ) (lib.mkOptionDefault ({ group = ""; } // resource))
-      ) (lib.importJSON cfg.apiMappingFile).resources
-    );
+    # a whole definition by priority before `attrsOf` splits it, so an empty
+    # set at a higher priority would drop every entry of the other.
+    apiResources = lib.mkMerge [
+      (lib.listToAttrs (
+        map (
+          resource:
+          lib.nameValuePair (
+            resource.name + lib.optionalString ((resource.group or "") != "") ".${resource.group}"
+          ) (lib.mkOptionDefault ({ group = ""; } // resource))
+        ) (lib.importJSON cfg.apiMappingFile).resources
+      ))
+      (lib.mapAttrs (_: lib.mkDefault) (
+        lib.listToAttrs (
+          map kindsLib.crdResource (
+            lib.filter (object: object.kind or null == "CustomResourceDefinition") (
+              cfg.crds ++ cfg.importedObjects
+            )
+          )
+        )
+      ))
+    ];
+
+    objects = importedTree;
 
     generated = checked finalised;
 

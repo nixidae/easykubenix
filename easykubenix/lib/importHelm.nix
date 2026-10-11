@@ -44,8 +44,6 @@
   # The Helm binary that renders the chart. Null takes the one in the package
   # set; `helm.releases` passes `helm.package` so that option keeps working.
   helmPackage ? null,
-  # Passed through untouched. See importYaml.nix.
-  kubernetes ? null,
 }:
 let
   chart2yaml =
@@ -73,9 +71,8 @@ let
   # Appended as a trailing transformer rather than merged into the result, for
   # two reasons. It keeps this function's return a plain config fragment,
   # identical in shape to `importYaml`'s, so a caller can read
-  # `.kubernetes.resources` off either. And it puts the Namespace through the
-  # same grouping as everything else, which is what files it under `none` --
-  # a Namespace has no `metadata.namespace` of its own.
+  # `.kubernetes.importedObjects` off either. And it puts the Namespace
+  # through the same filing as everything else.
   #
   # Trailing, so a caller's own transformers do not see it. It is this
   # function's bookkeeping, not part of what the chart rendered.
@@ -92,7 +89,7 @@ let
 
   imported = importYaml {
     src = rendered;
-    inherit crdSplit kubernetes;
+    inherit crdSplit;
     transformers = transformers ++ lib.optional (namespace != null) appendNamespace;
   };
 in

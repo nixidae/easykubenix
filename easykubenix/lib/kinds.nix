@@ -2,9 +2,9 @@
 # and which key an object of a given group and kind is filed under. See
 # design/kinds.md.
 #
-# `kubernetes.nix` and `importYaml` both call this, so a hand-written key and
-# an imported object agree on what a bare kind means. They must, or the same
-# object lands at two keys.
+# `kubernetes.nix` is the only caller: it chooses the key for a hand-written
+# object and files every imported one, so the two agree on what a bare kind
+# means.
 { lib }:
 let
   # schema.ParseGroupVersion: "v1" is the core group.

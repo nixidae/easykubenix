@@ -79,7 +79,6 @@ in
       fragments = lib.mapAttrsToList (
         _name: importspec:
         ekn.lib.importYaml {
-          inherit (config) kubernetes;
           inherit (importspec)
             src
             transformers
@@ -89,8 +88,9 @@ in
       ) cfg;
     in
     {
-      kubernetes.resources = lib.mkMerge (map (fragment: fragment.kubernetes.resources) fragments);
+      kubernetes.importedObjects = lib.concatMap (
+        fragment: fragment.kubernetes.importedObjects
+      ) fragments;
       kubernetes.crds = lib.concatMap (fragment: fragment.kubernetes.crds) fragments;
-      kubernetes.apiResources = lib.mkMerge (map (fragment: fragment.kubernetes.apiResources) fragments);
     };
 }
