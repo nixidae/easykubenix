@@ -14,8 +14,8 @@ in three places.
   `generatedByPath`, `importYaml`, `kluctl.nix` and the Python apply keys
   (`apply.py` `_object_key`, `directapply.py` `desired`) all drop the group.
 
-Status: proposal. `design/kinds/` holds a prototype. Nothing in
-`easykubenix/` uses it yet.
+Status: decisions taken (see the end), spike. `design/kinds/` holds the
+prototypes. Nothing in `easykubenix/` uses them yet.
 
 ## What Kubernetes already has
 
@@ -399,26 +399,31 @@ the import keys and the identity check. `objects` keeps its current type.
 
 ## Decisions
 
+Decided 2026-10-11.
+
 1. **`apiResources` holds `APIResource` records keyed by `GroupResource`.**
-   Recommended. It is the discovery shape, and `apiMappingFile` already has
-   it.
-2. **The key under a namespace accepts a `GroupKind` string.** Recommended.
-   It is the name kubectl and the API machinery use, and it makes aliases
-   optional.
-3. **`kindAliases` values are `GroupKind` strings.** Recommended. One string,
-   in a form Kubernetes defines, and no submodule.
-4. **One alias per `GroupKind`.** Recommended. Two aliases give an import two
-   equal answers.
-5. **A bare kind: core group first, otherwise an error.** Recommended. It
-   matches kubectl where kubectl is deterministic.
-6. **Hand-written objects are not moved.** Decided: a collision is an
-   evaluation error.
-7. **Where the identity check runs.** Recommended: one `throw` over the final
-   object list in `kubernetes.nix`, so generators and `kubernetes.crds` are
-   covered too. Not an assertion: an assertion cannot read a checked output.
-   It looks up the attribute paths only when it fires.
-8. **Python identity keys with the group.** A separate change after the Nix
-   part.
+   It is the discovery shape, and `apiMappingFile` already has it.
+2. **The key under a namespace is a kind, a `GroupKind` string or an
+   alias.** It is the name kubectl and the API machinery use, and it makes
+   aliases optional.
+3. **`kindAliases` values are `GroupKind` strings.** One string, in a form
+   Kubernetes defines, and no submodule.
+4. **Two aliases for one `GroupKind` are an evaluation error.** Otherwise an
+   import has two equal answers.
+5. **A bare kind: the core group first, otherwise an error.** It matches
+   kubectl where kubectl is deterministic.
+6. **Hand-written objects are not moved.** A collision is an evaluation
+   error.
+7. **The identity check is one `throw` over the final object list** in
+   `kubernetes.nix`, so generators and `kubernetes.crds` are covered too. Not
+   an assertion: an assertion cannot read a checked output. It looks up the
+   attribute paths only when it fires.
+8. **The Python identity keys get the group in the same change as the Nix
+   part**, so Nix and Python agree on identity when it lands. The kubeapply
+   gate has to pass before it does.
+10. **`apiMappings` stays as a deprecated input.** It becomes an
+    `apiResources` entry and prints a warning. solid-kubernetes uses it 80
+    times.
 9. **kubenix compatibility as one `kubenix` submodule, `null` by default.**
    Recommended, after the kinds work, because it reuses key resolution.
    kubenix's types stay intact, and an unused option costs nothing. The
