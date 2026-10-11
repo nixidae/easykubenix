@@ -182,11 +182,47 @@ Three facts make kubenix modules cheap to take in:
   `lib.modules.mapDefinitionValue`, and `mkIf`, `mkMerge` and priorities
   survive it.
 
-### Compatibility in one evaluation
+### kubenix as a submodule
 
 kubenix and easykubenix both declare `kubernetes.resources`, `objects`,
-`generated`, `namespace` and `imports`, with different meanings. So
-easykubenix rewrites each kubenix module and mounts it at `kubenix.*`:
+`generated`, `namespace` and `imports`, with different meanings. A submodule
+keeps the two apart with no rewriting: `kubenix.instances.<name>` is a
+`submoduleWith` whose modules are kubenix's own `k8s` module, so each
+instance is a whole kubenix configuration with kubenix's types.
+
+- Its special arguments are what kubenix's `lib/eval-modules.nix` passes:
+  `kubenix` (`lib`, `modules`, `evalModules`), `pkgs`, and `lib` extended with
+  kubenix's `upstreamables.nix`. One more, `eknConfig`, is the easykubenix
+  configuration around it, read-only.
+- Each instance's `kubernetes.objects` become easykubenix
+  `kubernetes.objects`, under the key an import would choose.
+- The option is `visible = "shallow"`, so documentation does not walk
+  kubenix's generated tree.
+
+`design/kinds/kubenix-submodule/` runs this inside the real easykubenix.
+One instance imports kubenix's `deployment` and `custom-resources` examples
+unchanged, plus a module that:
+
+- adds a container in list form beside the example's attribute-set
+  `containers.nginx`. kubenix's types merge the two.
+- reads `config.kubernetes.api.resources.core.v1.ConfigMap.nginx-config.metadata.name`
+  and `eknConfig.kubernetes.clusterInfo.ipFamilies`.
+
+A typed patch through `kubenix.instances.web.kubernetes.resources...` and an
+untyped one through `kubernetes.objects.web.Deployment.nginx` both apply. The
+result is five objects in namespace `web`.
+
+**An unused submodule costs nothing.** With 2000 easykubenix objects and the
+option imported but no instance, the evaluator counts 307 more values, 248
+more thunks and 132 more function calls than without it, out of 10.2 million
+values. Allocation is 471.8 MiB in both. Documentation gains one entry,
+`kubenix.instances` itself. An instance in use pays kubenix's own cost per
+object; see below.
+
+### Rejected: rewriting kubenix modules into easykubenix
+
+The other route rewrites each kubenix module, the way solid-kubernetes'
+`mkComponent` rewrites components, and mounts it at `kubenix.*`:
 
 1. `ekn.lib.fromKubenix module` takes a path, a function or an attribute set,
    as `imports` does, and walks `imports` the same way. Each definition under
@@ -223,16 +259,19 @@ easykubenix rewrites each kubenix module and mounts it at `kubenix.*`:
 nix eval --impure --json --expr 'import ./design/kinds/kubenix-wrapped.nix { kubenix = <checkout>; }'
 ```
 
-What this does not take from kubenix:
+Reading `config.kubernetes` through the remapped view works: the module
+system hands a module its `config` lazily, so the view is one more lazy
+value. What breaks it is the types. kubenix's generated options turn an
+attribute set into a list by its merge key, in both directions. Without them:
 
-- Its typed API. `kubenix.resources` is `kubeValueType`, as `objects` is. A
-  wrong field fails at `ekn validate`'s schema check, not at evaluation.
-- `kubenix.lib` helpers (`kubenix.lib.k8s.*`). They are plain functions, so
-  the wrapper can pass kubenix's `lib/k8s` when the user gives the source.
-- Its submodules, Helm, Docker and testing modules. A module that uses them
-  still has the separate evaluation in `design/kinds/kubenix.nix`.
-- Reads of `config.kubernetes.api.resources.<group>.<version>.<kind>` and of
-  `options.kubernetes.*`. The `config` view covers `kubenix.*` only.
+- One module that writes `containers` as a list and another that writes it as
+  an attribute set fail to merge. kubenix modules do this freely, because
+  kubenix accepts both.
+- A read returns whatever form the author wrote. kubenix always returns a
+  list.
+
+Getting both right means kubenix's types, and then the submodule is the
+simpler way to have them.
 
 ### What kubenix's typed API costs
 
@@ -273,10 +312,12 @@ Only one kind is measured. A kind with a larger schema costs kubenix more.
 `python3 design/kinds/typecost/run.py <kubenix checkout> out.json` repeats it,
 and `summary.py out.json` prints these tables.
 
-The prototype's merge keys are a stand-in table by field name. The real table
-comes from the OpenAPI document, per schema path. The same table can
-generalise `mkNamedList`, which always keys on `name`, to the key each
-Kubernetes list declares.
+The cost belongs to kubenix's objects only. easykubenix's own objects stay on
+`kubeValueType`.
+
+The OpenAPI merge keys are still worth having on easykubenix's side:
+`mkNamedList` always keys on `name`, and the same table would key each list
+the way Kubernetes declares it.
 
 ## Migration
 
@@ -333,8 +374,8 @@ the import keys and the identity check. `objects` keeps its current type.
    It looks up the attribute paths only when it fires.
 8. **Python identity keys with the group.** A separate change after the Nix
    part.
-9. **kubenix compatibility in one evaluation, by rewriting modules.**
+9. **kubenix compatibility as `kubenix.instances.<name>`, a submodule.**
    Recommended, after the kinds work, because it reuses key resolution.
-   Open: where the OpenAPI merge-key table comes from (generated per
-   Kubernetes version, beside `apiMappingFile`), and whether the separate
-   evaluation stays as the route for kubenix's submodules and Helm module.
+   kubenix's types stay intact, and an unused option costs nothing. Open:
+   how the user provides the kubenix source, and whether `eknConfig` stays
+   read-only or an instance may also write easykubenix options.
