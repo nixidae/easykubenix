@@ -962,24 +962,13 @@ in
     };
 
     apiResources = lib.mkOption {
-      type = lib.types.attrsOf (
-        lib.types.submodule {
-          freeformType = lib.types.attrsOf lib.types.anything;
-          options = {
-            name = lib.mkOption {
-              type = lib.types.str;
-              description = "Plural resource name.";
-            };
-            namespaced = lib.mkOption { type = lib.types.bool; };
-            group = lib.mkOption {
-              type = lib.types.str;
-              description = "API group; empty for the core group.";
-            };
-            version = lib.mkOption { type = lib.types.str; };
-            kind = lib.mkOption { type = lib.types.str; };
-          };
-        }
-      );
+      # `attrs`, not a submodule with typed `name`/`group`/`version`/`kind`.
+      # Every imported CRD is an entry, and a submodule per entry is a module
+      # evaluation: measured on 2000 CRDs, +2.56M values and +113 MiB over
+      # `apiMappings`' `attrsOf str`, against +209k and +10 MiB for `attrs`
+      # (`attrsOf anything`: +539k, +26 MiB). The cost of `attrs` is that an
+      # entry overridden at a higher priority is restated whole.
+      type = lib.types.attrsOf lib.types.attrs;
       default = { };
       description = ''
         What the cluster serves, as Kubernetes' `APIResource` records keyed by
