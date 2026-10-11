@@ -35,6 +35,15 @@ let
           spec.issuerRef.kind = "ClusterIssuer";
         };
 
+        # A GroupKind string as the key, the form `kubectl get` accepts. It
+        # names the group explicitly, which a kind two groups serve needs.
+        kubernetes.objects.custom-ns."Certificate.cert-manager.io".qualified = {
+          spec.dnsNames = [ "qualified.example.com" ];
+          spec.secretName = "qualified-tls";
+          spec.issuerRef.name = "selfsigned";
+          spec.issuerRef.kind = "ClusterIssuer";
+        };
+
         # Nested namespace
         kubernetes.objects.kube-system.ConfigMap.kube-proxy-config = {
           data."config.conf" = "apiVersion: kubeproxy.config.k8s.io/v1alpha1\nkind: KubeProxyConfiguration\n";

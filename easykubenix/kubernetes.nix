@@ -7,6 +7,9 @@
 }:
 let
   cfg = config.kubernetes;
+  # Not `kinds`: the per-namespace loops below bind that name.
+  kindsLib = import ./lib/kinds.nix { inherit lib; };
+  resolved = kindsLib.resolver cfg;
 
   # An old option name inside a submodule, kept working after a rename.
   #
@@ -279,7 +282,66 @@ let
     in
     if unit == null || declared == null then object else stampTargetMetadata declared object;
 
-  allGenerated = map stampRouted (generatedWithEkn ++ checkedCrds);
+  # An object's Kubernetes identity: namespace, group, kind and name. The
+  # version is not part of it; the API server converts between versions.
+  groupKindOf = object: {
+    inherit (object) kind;
+    group = kindsLib.groupOf object.apiVersion;
+  };
+  identityOf =
+    object:
+    "${
+      object.metadata.namespace or "none"
+    } ${kindsLib.objectName (groupKindOf object) object.metadata.name}";
+
+  # Two definitions of one identity: two keys for one group and kind (an
+  # alias and a GroupKind string), two attribute names with one
+  # `metadata.name`, or a generator's output beside an object. A `throw` over
+  # the final list and not an assertion, so generators and `kubernetes.crds`
+  # are covered: an assertion cannot read a checked output.
+  checkIdentities =
+    objects:
+    let
+      duplicates = lib.filterAttrs (_: group: lib.length group > 1) (lib.groupBy identityOf objects);
+      # Only read when the check fires.
+      pathsOf =
+        identity:
+        lib.concatLists (
+          lib.mapAttrsToList (
+            namespace: keys:
+            lib.concatLists (
+              lib.mapAttrsToList (
+                key: objects:
+                lib.concatLists (
+                  lib.mapAttrsToList (
+                    name: object:
+                    lib.optional (identityOf object == identity) (
+                      lib.showAttrPath [
+                        "kubernetes"
+                        "objects"
+                        namespace
+                        key
+                        name
+                      ]
+                    )
+                  ) objects
+                )
+              ) keys
+            )
+          ) cfg.objects
+        );
+    in
+    lib.throwIf (duplicates != { }) ''
+      Several definitions describe the same Kubernetes object:
+      ${lib.concatStringsSep "\n" (
+        lib.mapAttrsToList (
+          identity: group:
+          "  ${identity} (${toString (lib.length group)} definitions): ${lib.concatStringsSep ", " (pathsOf identity)}"
+        ) duplicates
+      )}
+    '' objects;
+
+  allGenerated = checkIdentities (map stampRouted (generatedWithEkn ++ checkedCrds));
 
   # The last thing the render does to an object, and the reason it is one
   # function rather than two lines repeated.
@@ -474,7 +536,7 @@ let
           lib.concatLists (
             lib.mapAttrsToList (
               name: object:
-              lib.optionals (kind == "Service") (
+              lib.optionals (object.kind == "Service" && kindsLib.groupOf object.apiVersion == "") (
                 let
                   spec = object.spec or { };
                   pinned = lib.filter (ip: ip != "None" && builtins.match "([0-9]{1,3}\.){3}[0-9]{1,3}" ip != null) (
@@ -510,7 +572,7 @@ let
           lib.concatLists (
             lib.mapAttrsToList (
               name: object:
-              lib.optionals (kind == "Service") (
+              lib.optionals (object.kind == "Service" && kindsLib.groupOf object.apiVersion == "") (
                 let
                   families = object.spec.ipFamilies or [ ];
                   policy = object.spec.ipFamilyPolicy or null;
@@ -625,7 +687,8 @@ in
               lib.types.submodule (
                 { name, ... }:
                 let
-                  kind = name;
+                  key = name;
+                  gk = resolved.resolveKey key;
                 in
                 {
                   freeformType = lib.conditionalAttrsOf (
@@ -687,11 +750,11 @@ in
 
                           apiVersion = lib.mkOption {
                             type = lib.types.str;
-                            default = cfg.apiMappings.${kind} or (throw "No apiMapping for ${kind}");
+                            default = if gk == null then throw (resolved.ambiguous key) else resolved.apiVersionOf gk;
                           };
                           kind = lib.mkOption {
                             type = lib.types.str;
-                            default = kind;
+                            default = if gk == null then key else gk.kind;
                           };
                           metadata = lib.mkOption {
                             type = lib.types.submodule {
@@ -891,14 +954,59 @@ in
         MachineDeployment = "cluster.x-k8s.io/v1beta1";
         MachineHealthCheck = "cluster.x-k8s.io/v1beta1";
       };
-      description = "Map of kind to apiVersion. Merged with mappings from `apiMappingFile`.";
+      description = ''
+        Deprecated. Map of kind to apiVersion, which wins over `apiResources`
+        for that bare kind. Use `apiResources`, and `kindAliases` for a kind
+        two groups serve.
+      '';
+    };
+
+    apiResources = lib.mkOption {
+      type = lib.types.attrsOf (
+        lib.types.submodule {
+          freeformType = lib.types.attrsOf lib.types.anything;
+          options = {
+            name = lib.mkOption {
+              type = lib.types.str;
+              description = "Plural resource name.";
+            };
+            namespaced = lib.mkOption { type = lib.types.bool; };
+            group = lib.mkOption {
+              type = lib.types.str;
+              description = "API group; empty for the core group.";
+            };
+            version = lib.mkOption { type = lib.types.str; };
+            kind = lib.mkOption { type = lib.types.str; };
+          };
+        }
+      );
+      default = { };
+      description = ''
+        What the cluster serves, as Kubernetes' `APIResource` records keyed by
+        GroupResource string (`deployments.apps`, `pods`,
+        `clusters.postgresql.cnpg.io`), which is a CRD's `metadata.name`.
+        Filled from `apiMappingFile` and from every imported CRD.
+      '';
+    };
+
+    kindAliases = lib.mkOption {
+      type = lib.types.attrsOf lib.types.str;
+      default = { };
+      example = {
+        PGCluster = "Cluster.postgresql.cnpg.io";
+      };
+      description = ''
+        Names for kinds, as GroupKind strings. An alias is a key under
+        `kubernetes.objects.<namespace>`, and imports file objects of that
+        group and kind under it.
+      '';
     };
 
     apiMappingFile = lib.mkOption {
       type = lib.types.path;
       default = ./apiResources/v1.33.json;
       description = ''
-        A JSON file to extend apiMappings.
+        An APIResourceList that fills `apiResources`.
         Generated by calling `kubectl api-resources --output=json > mappings.json`
       '';
     };
@@ -1254,16 +1362,17 @@ in
   ];
 
   config.kubernetes = {
-    # Get apiMappings from apiMappingFile
-    apiMappings =
-      let
-        data = lib.importJSON cfg.apiMappingFile;
-        objectToAttr = object: {
-          name = object.kind;
-          value = if object.group or "" == "" then object.version else "${object.group}/${object.version}";
-        };
-      in
-      lib.listToAttrs (map objectToAttr data.resources);
+    # A priority per entry, not one around the whole set: the option filters
+    # a whole definition by priority before `attrsOf` splits it, so an import's
+    # empty `mkDefault { }` would drop every entry of this file.
+    apiResources = lib.listToAttrs (
+      map (
+        resource:
+        lib.nameValuePair (
+          resource.name + lib.optionalString ((resource.group or "") != "") ".${resource.group}"
+        ) (lib.mkOptionDefault ({ group = ""; } // resource))
+      ) (lib.importJSON cfg.apiMappingFile).resources
+    );
 
     generated = checked finalised;
 
@@ -1401,7 +1510,10 @@ in
     generatedByPath = lib.foldl' (
       acc: object:
       lib.recursiveUpdate acc {
-        ${object.metadata.namespace or "none"}.${object.kind}.${object.metadata.name} = object;
+        ${
+          object.metadata.namespace or "none"
+        }.${resolved.keyFor (groupKindOf object)}.${object.metadata.name} =
+          object;
       }
     ) { } cfg.generated;
   };

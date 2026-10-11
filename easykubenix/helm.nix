@@ -192,6 +192,7 @@ in
           # The configurable Helm binary. The primitive defaults to the package
           # set's, so passing it here is what keeps `helm.package` working.
           helmPackage = cfg.package;
+          inherit (config) kubernetes;
           inherit (release)
             chart
             name
@@ -210,6 +211,6 @@ in
     {
       kubernetes.resources = lib.mkMerge (map (fragment: fragment.kubernetes.resources) fragments);
       kubernetes.crds = lib.concatMap (fragment: fragment.kubernetes.crds) fragments;
-      kubernetes.apiMappings = lib.mkMerge (map (fragment: fragment.kubernetes.apiMappings) fragments);
+      kubernetes.apiResources = lib.mkMerge (map (fragment: fragment.kubernetes.apiResources) fragments);
     };
 }

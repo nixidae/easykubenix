@@ -61,9 +61,27 @@
   # `transformers` above still see CRDs either way. The split happens after
   # them.
   crdSplit ? true,
+  # `config.kubernetes`, which decides the key each object is filed under: an
+  # alias, the bare kind, or the GroupKind string. `helm.releases` and
+  # `importyaml` pass it. Null files every object under its bare kind, so two
+  # groups serving one kind then collide.
+  kubernetes ? null,
 }:
 let
   objects = lib.pipe (parseYAMLStream { inherit src; }) transformers;
+  kinds = import ./kinds.nix { inherit lib; };
+  keyFor =
+    if kubernetes == null then
+      object: object.kind
+    else
+      let
+        resolved = kinds.resolver kubernetes;
+      in
+      object:
+      resolved.keyFor {
+        inherit (object) kind;
+        group = kinds.groupOf object.apiVersion;
+      };
 
   isCRD = object: (object.kind or null) == "CustomResourceDefinition";
   crds = lib.filter isCRD objects;
@@ -78,30 +96,21 @@ in
   # to fix and not this function's.
   kubernetes.resources = lib.mkMerge (
     map (object: {
-      ${object.metadata.namespace or "none"}.${object.kind}.${object.metadata.name} = object;
+      ${object.metadata.namespace or "none"}.${keyFor object}.${object.metadata.name} = object;
     }) resources
   );
 
   kubernetes.crds = crds;
 
-  # Every CRD in the stream teaches `kubernetes.apiMappings` the apiVersion for
-  # its own kind, so a custom resource elsewhere in the configuration does not
-  # have to name one. Read from `objects` and not from `crds`, so it still
-  # works with the split off.
+  # Every CRD in the stream becomes an `apiResources` entry, so a custom
+  # resource elsewhere in the configuration does not have to name its
+  # apiVersion. Read from `objects` and not from `crds`, so it still works
+  # with the split off. Keyed by the CRD's own name, so two groups serving one
+  # kind never collide.
   #
-  # `mkDefault`, so a configuration can still override a mapping by hand.
-  kubernetes.apiMappings = lib.listToAttrs (
-    map (crd: {
-      name = crd.spec.names.kind;
-      value =
-        let
-          version = lib.pipe crd.spec.versions [
-            (lib.filter (x: x.storage or false == true))
-            lib.head
-            (x: x.name)
-          ];
-        in
-        lib.mkDefault "${crd.spec.group}/${version}";
-    }) (lib.filter isCRD objects)
+  # `mkDefault` per entry, so a configuration can still override an entry by
+  # hand. Around the whole set it would drop the shipped list's entries.
+  kubernetes.apiResources = lib.mapAttrs (_: lib.mkDefault) (
+    lib.listToAttrs (map kinds.crdResource (lib.filter isCRD objects))
   );
 }

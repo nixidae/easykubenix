@@ -44,6 +44,8 @@
   # The Helm binary that renders the chart. Null takes the one in the package
   # set; `helm.releases` passes `helm.package` so that option keeps working.
   helmPackage ? null,
+  # Passed through untouched. See importYaml.nix.
+  kubernetes ? null,
 }:
 let
   chart2yaml =
@@ -90,7 +92,7 @@ let
 
   imported = importYaml {
     src = rendered;
-    inherit crdSplit;
+    inherit crdSplit kubernetes;
     transformers = transformers ++ lib.optional (namespace != null) appendNamespace;
   };
 in
