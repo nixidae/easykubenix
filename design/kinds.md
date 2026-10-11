@@ -234,6 +234,45 @@ What this does not take from kubenix:
 - Reads of `config.kubernetes.api.resources.<group>.<version>.<kind>` and of
   `options.kubernetes.*`. The `config` view covers `kubenix.*` only.
 
+### What kubenix's typed API costs
+
+`design/kinds/typecost/` puts the same N Deployments through kubenix's
+generated v1.33 options tree and through easykubenix's `kubeValueType`. Each
+Deployment has one container with ports, env, resources and a volume mount,
+written as plain lists, which both accept. Medians of three runs, warm store:
+
+| N | kubenix wall | easykubenix wall (`objects`) | kubenix peak RSS | easykubenix peak RSS |
+| --- | --- | --- | --- | --- |
+| 0 | 0.63 s | 0.58 s | 124 MiB | 141 MiB |
+| 100 | 1.01 s | 0.66 s | 282 MiB | 182 MiB |
+| 500 | 2.24 s | 1.05 s | 499 MiB | 345 MiB |
+| 2000 | 7.77 s | 2.30 s | 1491 MiB | 504 MiB |
+
+Per object, from N = 0 to N = 2000:
+
+| | evaluator CPU | allocated | values |
+| --- | --- | --- | --- |
+| kubenix | 6.28 ms | 1564 KiB | 32412 |
+| easykubenix `objects` | 0.96 ms | 391 KiB | 8566 |
+| easykubenix `generated` | 1.17 ms | 394 KiB | 8613 |
+
+- kubenix's fixed cost is small. Its option tree loads lazily, so an empty
+  evaluation is 0.63 s against 0.58 s.
+- Per object, kubenix costs 3.4 times the wall time, 4 times the allocation
+  and 3 times the peak memory at N = 2000. Its CPU time grows faster than
+  N: 2.6 ms per object up to N = 100, 6.3 ms up to N = 2000. Nix's
+  `cpuTime` (13.0 s) is then above the wall time (7.8 s), so part of it is
+  the garbage collector's parallel marking.
+- `generated` adds 0.2 ms per object to `objects`: the pipeline and the
+  manifest hash.
+- What kubenix buys with it is a type error at evaluation, with the option
+  path. easykubenix finds the same mistake at `ekn validate`, against the
+  real schema.
+
+Only one kind is measured. A kind with a larger schema costs kubenix more.
+`python3 design/kinds/typecost/run.py <kubenix checkout> out.json` repeats it,
+and `summary.py out.json` prints these tables.
+
 The prototype's merge keys are a stand-in table by field name. The real table
 comes from the OpenAPI document, per schema path. The same table can
 generalise `mkNamedList`, which always keys on `name`, to the key each
