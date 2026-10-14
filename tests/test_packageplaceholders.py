@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 import pygit2
 import pytest
 
-from ekn import cli
+from ekn import cli, packageplaceholders
 from ekn._cli import build_parser
 from ekn.git import commit_manifests, diff_manifests
 from ekn.gitops import flatten_manifests
@@ -201,3 +201,36 @@ def test_normalization_preserves_types_and_embedded_data_keys() -> None:
         **obj["spec"],
         "command": [f"{PREVIEW.replace('-program', '-placeholder')}/bin/program", "--enabled"],
     }
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_declared_rollout_hashes_normalize_both_sides(test_repo: Path, reverse: bool) -> None:
+    old = copy.deepcopy(MANIFEST)
+    new = _preview_manifest()
+    old["spec"] = {"template": {"metadata": {"annotations": {"example.org/config": "old", "keep": "yes"}}}}
+    new["spec"] = {"template": {"metadata": {"annotations": {"example.org/config": "new", "keep": "yes"}}}}
+    new["metadata"]["annotations"]["ekn.dev/package-placeholder-hashes"] = (
+        '["/spec/template/metadata/annotations/example.org~1config"]'
+    )
+    before, after = (new, old) if reverse else (old, new)
+    commit_manifests(str(test_repo), "preview-test", flatten_manifests([before]), "baseline")
+    assert diff_manifests(str(test_repo), "preview-test", flatten_manifests([after]), package_placeholders=True) is None
+    after = copy.deepcopy(after)
+    after["spec"]["template"]["metadata"]["annotations"]["keep"] = "changed"
+    assert diff_manifests(str(test_repo), "preview-test", flatten_manifests([after]), package_placeholders=True)
+
+
+def test_audit_warns_with_object_and_field_without_values(monkeypatch: pytest.MonkeyPatch) -> None:
+    warnings = []
+    monkeypatch.setattr(packageplaceholders._log, "warning", lambda *args, **kwargs: warnings.append((args, kwargs)))
+    packageplaceholders.warn_unwrapped_packages([MANIFEST])
+    assert warnings == [
+        (
+            ("unwrapped package paths remain in preview manifests",),
+            {"fields": ["ConfigMap/_cluster/probe/data/command"]},
+        )
+    ]
+    assert REAL not in repr(warnings)
+    warnings.clear()
+    packageplaceholders.warn_unwrapped_packages([_preview_manifest()])
+    assert warnings == []

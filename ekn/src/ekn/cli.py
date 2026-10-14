@@ -76,7 +76,7 @@ from ekn.gitops import (
     flatten_manifests,
 )
 from ekn.nixyaml import from_go_like_yaml_stream, from_yaml11_stream, from_yaml_stream, to_yaml
-from ekn.packageplaceholders import evaluation_mode as package_placeholder_evaluation
+from ekn.packageplaceholders import evaluation_mode as package_placeholder_evaluation, warn_unwrapped_packages
 from ekn.reclaim import reclaim
 from ekn.schemacheck import Catalog, GroupVersionKind, Report, add_rendered_crds, check
 from ekn.schemapolicy import PolicyResult, check_policies
@@ -303,6 +303,14 @@ class Render(AttrCommand):
                 cast("list[dict[str, Any]]", manifests),
                 lambda catalog: _load_spec(catalog, spec_dir),
                 stream=sys.stderr,
+            )
+        if self.package_placeholders:
+            warn_unwrapped_packages(
+                [
+                    obj
+                    for obj in manifests
+                    if not (self.skip_crds and isinstance(obj, dict) and obj.get("kind") == "CustomResourceDefinition")
+                ]
             )
         for _, content in flatten_manifests(manifests, skip_crds=self.skip_crds):
             sys.stdout.write("---\n")
