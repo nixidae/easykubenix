@@ -165,6 +165,50 @@ def test_diff_keeps_tofu_files_exact(test_repo: Path) -> None:
     assert diff_manifests(str(test_repo), "preview-test", [("config.tf.json", PREVIEW)], package_placeholders=True)
 
 
+@pytest.mark.parametrize("name", ["PATH", "PYTHONPATH"])
+def test_assembled_package_paths_match_one_preview_reference(test_repo: Path, name: str) -> None:
+    old = copy.deepcopy(MANIFEST)
+    old["data"] = {}
+    old["spec"] = {"containers": [{"env": [{"name": name, "value": f"{REAL}/lib:{REAL}-dependency/lib"}]}]}
+    new = copy.deepcopy(old)
+    new["spec"]["containers"][0]["env"][0]["value"] = f"{PREVIEW}/lib"
+    commit_manifests(str(test_repo), "assembled-path-test", flatten_manifests([old]), "baseline")
+    assert diff_manifests(str(test_repo), "assembled-path-test", flatten_manifests([new])) is not None
+    assert (
+        diff_manifests(str(test_repo), "assembled-path-test", flatten_manifests([new]), package_placeholders=True)
+        is None
+    )
+
+
+@pytest.mark.parametrize(
+    "value",
+    [f"{REAL}/lib:{REAL}/bin", f"{REAL}/lib:/custom/lib", f"{REAL}/lib:", f":{REAL}/lib"],
+)
+def test_assembled_path_normalization_preserves_suffixes_literals_and_empty_entries(value: str) -> None:
+    obj = copy.deepcopy(MANIFEST)
+    obj["data"] = {}
+    obj["spec"] = {"containers": [{"env": [{"name": "PYTHONPATH", "value": value}]}]}
+    [(_, content)] = flatten_manifests([obj])
+    normalized = from_yaml(normalize_manifest_yaml(content))
+    assert isinstance(normalized, dict)
+    assert normalized["spec"]["containers"][0]["env"][0]["value"] == value.replace(
+        REAL, packageplaceholders._PLACEHOLDER
+    )
+
+
+def test_non_path_environment_variables_preserve_repeated_entries() -> None:
+    obj = copy.deepcopy(MANIFEST)
+    obj["data"] = {}
+    obj["spec"] = {"containers": [{"env": [{"name": "OTHER", "value": f"{REAL}/lib:{REAL}/lib"}]}]}
+    [(_, content)] = flatten_manifests([obj])
+    normalized = from_yaml(normalize_manifest_yaml(content))
+    assert isinstance(normalized, dict)
+    assert (
+        normalized["spec"]["containers"][0]["env"][0]["value"]
+        == f"{packageplaceholders._PLACEHOLDER}/lib:{packageplaceholders._PLACEHOLDER}/lib"
+    )
+
+
 def test_non_manifest_yaml_stays_exact() -> None:
     content = f"resources:\n- {REAL}\n"
     assert normalize_manifest_yaml(content) == content

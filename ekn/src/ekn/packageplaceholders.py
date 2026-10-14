@@ -108,7 +108,14 @@ def _normalize(value: JsonValue) -> JsonValue:
     if isinstance(value, list):
         return [_normalize(child) for child in value]
     if isinstance(value, dict):
-        return {key: _normalize(child) for key, child in value.items()}
+        result = {key: _normalize(child) for key, child in value.items()}
+        if result.get("name") in ("PATH", "PYTHONPATH"):
+            path = result.get("value")
+            if isinstance(path, str):
+                parts = path.split(":")
+                if all(part.startswith(_PLACEHOLDER + "/") for part in parts):
+                    result["value"] = ":".join(dict.fromkeys(parts))
+        return result
     return value
 
 
