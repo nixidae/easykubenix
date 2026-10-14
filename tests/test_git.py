@@ -6,6 +6,7 @@ import pytest
 
 from ekn.git import commit_manifests, diff_manifests
 from ekn.gitops import flatten_manifests
+from ekn.nixyaml import from_go_like_yaml
 
 SAMPLE_MANIFESTS = [
     {
@@ -24,6 +25,27 @@ SAMPLE_MANIFESTS = [
 
 
 class TestFlattenManifests:
+    @pytest.mark.parametrize("text", ["y", "Y", "n", "N", "08", "1e+06", "+_803.e+048", "-_9.e-515"])
+    def test_strings_keep_their_type_in_kubernetes(self, text: str) -> None:
+        manifest = {
+            "apiVersion": "v1",
+            "kind": "ConfigMap",
+            "metadata": {"name": "scalar-probe"},
+            "data": {text: text},
+        }
+        [(_, content)] = flatten_manifests([manifest])
+        assert from_go_like_yaml(content) == manifest
+
+    def test_large_integer_schema_bounds_keep_their_value(self) -> None:
+        manifest = {
+            "apiVersion": "apiextensions.k8s.io/v1",
+            "kind": "CustomResourceDefinition",
+            "metadata": {"name": "probes.example.org"},
+            "spec": {"minimum": -(2**63), "maximum": 2**63 - 1},
+        }
+        [(_, content)] = flatten_manifests([manifest])
+        assert from_go_like_yaml(content) == manifest
+
     def test_list(self) -> None:
         files = flatten_manifests(SAMPLE_MANIFESTS)
         paths = [p for p, _ in files]

@@ -9,6 +9,7 @@ import structlog
 import yaml
 
 from ekn import seeds
+from ekn.nixyaml import KubernetesDumper
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -150,7 +151,7 @@ def flatten_manifests(  # noqa: C901 -- tracked complexity/arg-count debt, see T
             manifest,
             default_flow_style=False,
             sort_keys=False,
-            Dumper=yaml.CSafeDumper,
+            Dumper=KubernetesDumper,
         )
         files.append((str(path), yaml_content))
 
@@ -180,7 +181,7 @@ def flatten_manifests(  # noqa: C901 -- tracked complexity/arg-count debt, see T
                 },
                 default_flow_style=False,
                 sort_keys=False,
-                Dumper=yaml.CSafeDumper,
+                Dumper=KubernetesDumper,
             )
             files.append((str(generator_path), generator_content))
             generators.append(str(generator_path.relative_to(base)))
@@ -200,7 +201,7 @@ def flatten_manifests(  # noqa: C901 -- tracked complexity/arg-count debt, see T
             kustomization,
             default_flow_style=False,
             sort_keys=False,
-            Dumper=yaml.CSafeDumper,
+            Dumper=KubernetesDumper,
         )
         files.append((str(base / "kustomization.yaml"), kustomization_content))
 

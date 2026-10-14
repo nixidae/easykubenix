@@ -590,7 +590,18 @@ def from_yaml11_stream(source: str) -> list[JsonValue]:
         raise ValueError(f"fromYAML11Stream: failed to parse YAML 1.1 stream: {_parse_error_message(exc)}") from exc
 
 
-class _BlockStyleDumper(yaml.CSafeDumper):
+class KubernetesDumper(yaml.CSafeDumper):
+    """Quote scalars that Kubernetes or YAML 1.1 readers resolve as another type."""
+
+    def resolve(self, kind: Any, value: Any, implicit: Any) -> str:
+        if kind is yaml.ScalarNode and implicit[0]:
+            tag = _go_resolve(value)[0]
+            if tag != _STR_TAG:
+                return tag
+        return cast("str", super().resolve(kind, value, implicit))
+
+
+class _BlockStyleDumper(KubernetesDumper):
     """CSafeDumper that renders multi-line strings as literal blocks (``|``).
 
     A plain SafeDumper falls back to an escaped double-quoted scalar for any
@@ -618,13 +629,6 @@ class _BlockStyleDumper(yaml.CSafeDumper):
     The rule is the reader's own function, and not a description of it. A
     description drifts: nanopynix #307 lists six classes where one did.
     """
-
-    def resolve(self, kind: Any, value: Any, implicit: Any) -> str:
-        if kind is yaml.ScalarNode and implicit[0]:
-            tag = _go_resolve(value)[0]
-            if tag != _STR_TAG:
-                return tag
-        return cast("str", super().resolve(kind, value, implicit))  # type: ignore[reportUnknownMemberType] -- PyYAML stubs may be incomplete
 
 
 def _represent_str(dumper: _BlockStyleDumper, data: str) -> yaml.Node:
