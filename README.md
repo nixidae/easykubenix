@@ -1,6 +1,6 @@
 # easykubenix
 
-[![Documentation](https://img.shields.io/badge/docs-lillecarl.github.io-blue)](https://lillecarl.github.io/easykubenix/)
+[![Documentation](https://img.shields.io/badge/docs-lillecarl.github.io-blue)](https://nixidae.github.io/easykubenix/)
 
 Note that a lot of this text is AI slop(because i write like a toddler), don't
 judge the book by it's cover though!
@@ -491,12 +491,12 @@ See `design/opentofu.md`.
 `kluctl` is a CLI and GitOps tool that deploys manifests, and easykubenix can
 still generate a minimal kluctl project and deployment script. It predates
 `ekn kubeapply`, which now covers the same ground natively. See
-[issue #2](https://github.com/Lillecarl/easykubenix/issues/2); `kluctl.*`
+[issue #2](https://github.com/nixidae/easykubenix/issues/2); `kluctl.*`
 options still work, and `kluctl.discriminator`/`kluctl.resourcePriority` have
 moved to `ekn.environment`/`ekn.resourcePriority` with warnings pointing at the
 new paths.
 
-[Documentation](https://lillecarl.github.io/easykubenix/)
+[Documentation](https://nixidae.github.io/easykubenix/)
 
 ---
 

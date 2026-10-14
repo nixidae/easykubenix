@@ -163,7 +163,7 @@ in
   };
   config = {
     # Everything still under `kluctl.*` is deprecated -- see
-    # https://github.com/Lillecarl/easykubenix/issues/2. `ekn kubeapply` covers
+    # https://github.com/nixidae/easykubenix/issues/2. `ekn kubeapply` covers
     # the same ground natively, and `validation.nix` no longer deploys through
     # kluctl either, so nothing in this repository consumes the generated
     # project. It keeps working; it just is not where new work goes.
