@@ -13,6 +13,10 @@ import anyio
 import pygit2
 from anyio import Path as AsyncPath
 
+from ekn.gitops import is_crd_file, without_crd_references
+from ekn.nixyaml import from_yaml_stream
+from ekn.packageplaceholders import declared_hash_paths, normalize_manifest_yaml, warn_unwrapped_packages
+
 _SOURCE_TRAILER_KEY = "ekn-source"
 _SOURCE_TRAILER_RE = re.compile(rf"^{re.escape(_SOURCE_TRAILER_KEY)}: (?P<oid>[0-9a-f]{{4,40}})$", re.MULTILINE)
 
@@ -130,10 +134,57 @@ def commit_manifests(
     return str(commit_id)
 
 
+def _without_crds(repo: Any, tree_id: Any) -> Any:
+    index = pygit2.Index()
+    index.read_tree(repo[tree_id])
+    for entry in list(index):
+        if is_crd_file(entry.path):
+            index.remove(entry.path)
+        elif Path(entry.path).name == "kustomization.yaml":
+            content = repo[entry.id].data.decode("utf-8")
+            filtered = without_crd_references(content)
+            if filtered is None:
+                index.remove(entry.path)
+            elif filtered != content:
+                blob_id = repo.create_blob(filtered.encode("utf-8"))
+                index.add(pygit2.IndexEntry(entry.path, blob_id, entry.mode))
+    return index.write_tree(repo)
+
+
+def _without_package_paths(repo: Any, tree_id: Any, hash_paths: dict[str, tuple[str, ...]]) -> Any:
+    index = pygit2.Index()
+    index.read_tree(repo[tree_id])
+    for entry in list(index):
+        if Path(entry.path).suffix not in {".yaml", ".yml"}:
+            continue
+        content = repo[entry.id].data.decode("utf-8")
+        normalized = normalize_manifest_yaml(content, hash_paths=hash_paths.get(entry.path, ()))
+        if normalized != content:
+            blob_id = repo.create_blob(normalized.encode("utf-8"))
+            index.add(pygit2.IndexEntry(entry.path, blob_id, entry.mode))
+    return index.write_tree(repo)
+
+
+def _package_hash_paths(repo: Any, tree_id: Any, *, warn: bool) -> dict[str, tuple[str, ...]]:
+    paths: dict[str, tuple[str, ...]] = {}
+    index = pygit2.Index()
+    index.read_tree(repo[tree_id])
+    for entry in index:
+        if Path(entry.path).suffix in {".yaml", ".yml"}:
+            content = repo[entry.id].data.decode("utf-8")
+            if warn:
+                warn_unwrapped_packages(from_yaml_stream(content))
+            paths[entry.path] = declared_hash_paths(content)
+    return paths
+
+
 def diff_manifests(
     repo_path: str,
     branch_name: str,
     new_files: list[tuple[str, str]],
+    *,
+    skip_crds: bool = False,
+    package_placeholders: bool = False,
 ) -> str | None:
     repo = pygit2.Repository(_repo_path(repo_path))
     new_tree_id = _build_tree(repo, new_files)
@@ -143,6 +194,18 @@ def diff_manifests(
         old_tree_id = branch.peel(pygit2.Commit).tree_id
     except KeyError:
         old_tree_id = repo.TreeBuilder().write()
+
+    if skip_crds:
+        old_tree_id = _without_crds(repo, old_tree_id)
+        new_tree_id = _without_crds(repo, new_tree_id)
+
+    if package_placeholders:
+        hash_paths: dict[str, tuple[str, ...]] = {}
+        for tree_id in (old_tree_id, new_tree_id):
+            for path, pointers in _package_hash_paths(repo, tree_id, warn=tree_id == new_tree_id).items():
+                hash_paths[path] = tuple(sorted(set(hash_paths.get(path, ())) | set(pointers)))
+        old_tree_id = _without_package_paths(repo, old_tree_id, hash_paths)
+        new_tree_id = _without_package_paths(repo, new_tree_id, hash_paths)
 
     buf = io.StringIO()
     for patch in repo.diff(old_tree_id, new_tree_id):

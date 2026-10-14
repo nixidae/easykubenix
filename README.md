@@ -102,6 +102,25 @@ as it requires running `helm template` during Nix evaluation.
 
 See the demo for examples
 
+### Inspecting manifests without CRDs
+
+Use `ekn render --skip-crds` to omit CRD schemas from YAML output.
+Use `ekn render --package-placeholders` for inspection with lazy package references.
+Modules opt in with helpers such as SOLID's `ph`; other packages still evaluate normally.
+Use `ekn diff --package-placeholders` to normalize store roots on both comparison inputs.
+This ignores package identity changes and manifest hashes, while preserving paths after each store root.
+Normalization affects Kubernetes YAML only; OpenTofu files remain exact.
+Preview commands warn on remaining real store paths, naming objects and fields without printing values.
+Modules can declare package-dependent hashes with `ekn.dev/package-placeholder-hashes`, a JSON array of JSON pointers.
+Diff ignores those exact fields on both inputs and removes the comparison hint itself.
+Placeholder render output contains non-deployable paths. Delivery commands clear the internal preview environment variable.
+Use `ekn diff --skip-crds` to ignore CRDs on both sides of a GitOps comparison.
+The diff also removes CRD kustomization references and empty generated kustomizations.
+Use `ekn clusterdiff --skip-crds` to omit CRD lookups, dry runs, and diff output against the live cluster.
+Custom resources remain in the comparison.
+`ekn render --validate --skip-crds` validates all objects before filtering output.
+Commit, deploy, and apply commands retain the full manifest set.
+
 ### Naming the cluster
 
 `ekn.clusterUid` is the `uid` of the target cluster's `kube-system` Namespace.

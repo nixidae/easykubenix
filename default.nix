@@ -297,6 +297,7 @@ let
       # `/nix/store`. See easykubenix/lib/envSeed.nix.
       inherit (lib) envSeed envSeeded;
       lib = {
+        packageRef = import ./easykubenix/lib/packageRef.nix { };
         # Evaluate a whole separate easykubenix configuration from inside
         # this one. Used by gitops.nix for `gitOps.targets.<name>.modules`;
         # see `mkInstance` above for what it does and does not share with

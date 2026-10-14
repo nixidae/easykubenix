@@ -9,6 +9,7 @@ import structlog
 import yaml
 
 from ekn import seeds
+from ekn.manifestyaml import dump_manifest
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -65,8 +66,8 @@ def resolved_targets(gitops_targets: dict[str, GitOpsTargetEntry]) -> dict[GitOp
     Each target's `rawFiles` (paths only, per easykubenix) are read and
     parsed here and appended to the same manifest list `objects` populates
     -- from here on a raw-file-sourced manifest is just a dict like any
-    other; `flatten_manifests` writes it via the same `yaml.dump(...,
-    sort_keys=False)` call either way, which is what actually preserves
+    other; `flatten_manifests` writes it via the same YAML emitter
+    either way, which is what actually preserves
     its order (parsed-from-file dicts already have the right order;
     Nix-evaluated ones don't, but weren't order-sensitive to begin with).
     """
@@ -82,6 +83,8 @@ def flatten_manifests(  # noqa: C901 -- tracked complexity/arg-count debt, see T
     data: Sequence[JsonValue],
     subdir: str = "./",
     kustomize: bool = False,
+    *,
+    skip_crds: bool = False,
 ) -> list[tuple[str, str]]:
     """Render a list of manifests to `(path, yaml_content)` pairs, optionally
     alongside a kustomize `kustomization.yaml` (plus a ksops generator for any
@@ -102,56 +105,15 @@ def flatten_manifests(  # noqa: C901 -- tracked complexity/arg-count debt, see T
         kind = manifest.get("kind")
         if not isinstance(metadata, dict) or not isinstance(kind, str):
             continue
+        if skip_crds and kind == "CustomResourceDefinition":
+            continue
         namespace = metadata.get("namespace", "none")
         name = metadata.get("name")
         if not isinstance(namespace, str) or not isinstance(name, str):
             continue
         path = base / namespace / kind / f"{name}.yaml"
-        # CSafeDumper (libyaml-backed) instead of the pure-Python Dumper:
-        # benchmarked ~7.5x faster (5.0s -> 0.67s for a 371-object render,
-        # dominated by CRDs' multi-hundred-KB bodies).
-        #
-        # **`CSafeDumper` is `CEmitter` + the pure-Python `SafeRepresenter`.**
-        # Only emission is C; the walk that turns objects into a node tree is
-        # not, and it becomes the dominant cost once the emitter goes. Measured
-        # over 200 CRD-shaped objects:
-        #
-        #   SafeDumper    5.483s   emitter.py 67.1%, representer.py  2.0%
-        #   CSafeDumper   0.237s   emitter.py absent, representer.py 69.5%
-        #
-        # So a profile of this path showing `yaml/representer.py` at the top is
-        # evidence that libyaml is already in use, not that it is missing.
-        # Switching dumper cannot remove that time; only not using PyYAML's
-        # representer could. Do not read those frames as a missed 7x.
-        #
-        # On the text: with these settings the two dumpers agree on plain
-        # scalars and disagree on long double-quoted ones, where they break the
-        # line in different places and `width` does not reconcile them. Both
-        # parse equal. Neither case was measured against a real deploy tree, so
-        # read that as "they can differ" rather than as a survey of where.
-        #
-        # It is recorded because these files are committed. Changing what emits
-        # them reflows the tree once, which is a review cost rather than a
-        # correctness one, and it is the reason to leave this dumper alone
-        # absent a better motive than speed.
-        #
-        # The representer cost is per node, so it falls on whatever is largest
-        # -- CRDs and chart output, which arrived as text from disk and were
-        # never touched in Nix. Re-deriving them here walks bytes that were
-        # already correct on the way in. That is the output-side half of the
-        # argument in #35: data from disk should be parsed once in a sandbox
-        # and carried as cached JSON, rather than round-tripped through Nix
-        # values at both ends. Replacing this representer treats the symptom.
-        #
-        # It is not the git half. `pygit2` takes the finished `(path,
-        # content)` pairs, and `_resolve_gitops` builds them once for `diff`
-        # and `commit` together, so nothing here is serialised twice.
-        yaml_content = yaml.dump(
-            manifest,
-            default_flow_style=False,
-            sort_keys=False,
-            Dumper=yaml.CSafeDumper,
-        )
+        # Direct events save 28% serialization CPU on 1,625 SOLID objects (#62).
+        yaml_content = dump_manifest(manifest)
         files.append((str(path), yaml_content))
 
         if not kustomize:
@@ -160,7 +122,7 @@ def flatten_manifests(  # noqa: C901 -- tracked complexity/arg-count debt, see T
         if isinstance(manifest.get("sops"), dict):
             generator_path = base / namespace / kind / f"{name}.ksops-generator.yaml"
             generator_name = f"{namespace}-{kind.lower()}-{name}-ksops"
-            generator_content = yaml.dump(
+            generator_content = dump_manifest(
                 {
                     "apiVersion": "viaduct.ai/v1",
                     "kind": "ksops",
@@ -178,9 +140,6 @@ def flatten_manifests(  # noqa: C901 -- tracked complexity/arg-count debt, see T
                     # in a subdirectory (namespace/kind/), which is always.
                     "files": [rel_path],
                 },
-                default_flow_style=False,
-                sort_keys=False,
-                Dumper=yaml.CSafeDumper,
             )
             files.append((str(generator_path), generator_content))
             generators.append(str(generator_path.relative_to(base)))
@@ -196,12 +155,7 @@ def flatten_manifests(  # noqa: C901 -- tracked complexity/arg-count debt, see T
             kustomization["resources"] = resources
         if generators:
             kustomization["generators"] = generators
-        kustomization_content = yaml.dump(
-            kustomization,
-            default_flow_style=False,
-            sort_keys=False,
-            Dumper=yaml.CSafeDumper,
-        )
+        kustomization_content = dump_manifest(kustomization)
         files.append((str(base / "kustomization.yaml"), kustomization_content))
 
     return files
@@ -259,7 +213,36 @@ def without_seeded(manifests: list[Manifest], path: str) -> tuple[list[Manifest]
     return committable, withheld
 
 
-def file_groups(result: GitOpsManifestsResult) -> list[tuple[str, str]]:
+def is_crd_file(path: str) -> bool:
+    """Identify CRD manifests and generators in the generated namespace/kind/name layout."""
+    parsed = PurePosixPath(path)
+    return parsed.parent.name == "CustomResourceDefinition" and parsed.suffix in (".yaml", ".yml")
+
+
+def without_crd_references(content: str) -> str | None:
+    """Remove generated CRD references, omitting an empty generated kustomization."""
+    document = yaml.load(content, Loader=yaml.CSafeLoader)
+    if not isinstance(document, dict):
+        return content
+    changed = False
+    for field in ("resources", "generators"):
+        entries = document.get(field)
+        if not isinstance(entries, list):
+            continue
+        kept = [entry for entry in entries if not (isinstance(entry, str) and is_crd_file(entry))]
+        if kept == entries:
+            continue
+        changed = True
+        if kept:
+            document[field] = kept
+        else:
+            del document[field]
+    if document == {"apiVersion": "kustomize.config.k8s.io/v1beta1", "kind": "Kustomization"}:
+        return None
+    return dump_manifest(document) if changed else content
+
+
+def file_groups(result: GitOpsManifestsResult, *, skip_crds: bool = False) -> list[tuple[str, str]]:
     """Merge every GitOps target's rendered objects into one file list.
 
     Targets are pure path-routing (`gitOps.targets.<name>.path`) -- there is
@@ -280,7 +263,7 @@ def file_groups(result: GitOpsManifestsResult) -> list[tuple[str, str]]:
     for target, target_manifests in routed.items():
         committable, target_withheld = without_seeded(target_manifests, target.path)
         withheld.extend(target_withheld)
-        for path, content in flatten_manifests(committable, target.path, kustomize=True):
+        for path, content in flatten_manifests(committable, target.path, kustomize=True, skip_crds=skip_crds):
             existing = files.get(path)
             if existing is not None and existing != content:
                 raise GitOpsTargetError(f"conflicting generated content for {path}")
@@ -305,7 +288,9 @@ __all__ = [
     "branches",
     "file_groups",
     "flatten_manifests",
+    "is_crd_file",
     "load_raw_manifest",
     "resolved_targets",
+    "without_crd_references",
     "without_seeded",
 ]

@@ -76,6 +76,7 @@ from ekn.gitops import (
     flatten_manifests,
 )
 from ekn.nixyaml import from_go_like_yaml_stream, from_yaml11_stream, from_yaml_stream, to_yaml
+from ekn.packageplaceholders import evaluation_mode as package_placeholder_evaluation, warn_unwrapped_packages
 from ekn.reclaim import reclaim
 from ekn.schemacheck import Catalog, GroupVersionKind, Report, add_rendered_crds, check
 from ekn.schemapolicy import PolicyResult, check_policies
@@ -269,6 +270,14 @@ class Eval(AttrCommand):
 class Render(AttrCommand):
     """Render Kubernetes manifests as YAML on stdout."""
 
+    package_placeholders: bool = opt(
+        False, help="Use lazy package placeholders for inspection; output contains non-deployable package paths."
+    )
+
+    skip_crds: bool = opt(
+        False, help="Omit CustomResourceDefinitions from output; --validate still checks all objects."
+    )
+
     validate: bool = opt(
         False,
         help="Check every object against its JSON schema before writing any: built-in kinds from "
@@ -279,9 +288,10 @@ class Render(AttrCommand):
     async def run(self) -> None:
         uri, customer = _parse_flake(self.flake) if self.flake is not None else (None, None)
         try:
-            manifests, spec_dir = await evaluate_generated_with_spec(
-                self.file, uri, customer, self.attr, with_spec=self.validate
-            )
+            with package_placeholder_evaluation(enabled=self.package_placeholders):
+                manifests, spec_dir = await evaluate_generated_with_spec(
+                    self.file, uri, customer, self.attr, with_spec=self.validate
+                )
         except NixError as exc:
             _report_nix_error(exc)
         if not isinstance(manifests, list):
@@ -294,7 +304,15 @@ class Render(AttrCommand):
                 lambda catalog: _load_spec(catalog, spec_dir),
                 stream=sys.stderr,
             )
-        for _, content in flatten_manifests(manifests):
+        if self.package_placeholders:
+            warn_unwrapped_packages(
+                [
+                    obj
+                    for obj in manifests
+                    if not (self.skip_crds and isinstance(obj, dict) and obj.get("kind") == "CustomResourceDefinition")
+                ]
+            )
+        for _, content in flatten_manifests(manifests, skip_crds=self.skip_crds):
             sys.stdout.write("---\n")
             sys.stdout.write(content)
 
@@ -302,11 +320,22 @@ class Render(AttrCommand):
 class Diff(AttrCommand):
     """Diff GitOps-routed manifests against the deploy branch."""
 
+    package_placeholders: bool = opt(
+        False, help="Use lazy package placeholders and ignore store roots and manifest hashes on both sides."
+    )
+
+    skip_crds: bool = opt(False, help="Ignore generated CRD files and their kustomization references on both sides.")
+
     async def run(self) -> None:
         # `ekn diff` moves no ref, so it does not assert fetchability.
-        deploy_branch, _source_branch, files, _assert_cached = await _resolve_gitops(self.file, self.flake, self.attr)
+        with package_placeholder_evaluation(enabled=self.package_placeholders):
+            deploy_branch, _source_branch, files, _assert_cached = await _resolve_gitops(
+                self.file, self.flake, self.attr, skip_crds=self.skip_crds
+            )
         try:
-            diff_output = diff_manifests(".", deploy_branch, files)
+            diff_output = diff_manifests(
+                ".", deploy_branch, files, skip_crds=self.skip_crds, package_placeholders=self.package_placeholders
+            )
         except Exception as exc:
             _log.error("diff failed: %s", exc)
             raise SystemExit(1) from exc
@@ -321,6 +350,8 @@ async def _resolve_gitops(
     file: _Path | None,
     flake: str | None,
     attr: str | None,
+    *,
+    skip_crds: bool = False,
 ) -> tuple[str, str | None, list[tuple[str, str]], list[str]]:
     """Evaluate GitOps manifests and return `(deploy_branch, source_branch,
     files, assert_cached)` -- one branch pair per easykubenix instance, see
@@ -332,7 +363,7 @@ async def _resolve_gitops(
     """
     result = await _evaluate_gitops(file, flake, attr)
     try:
-        files = gitops_file_groups(result)
+        files = gitops_file_groups(result, skip_crds=skip_crds)
         # Each `tf` unit's `config.tf.json`, beside the manifests and on the
         # same branch. Committed so the infrastructure change is reviewable as
         # a diff, the same way the rendered objects are.
@@ -2127,6 +2158,10 @@ class ClusterDiff(FencedCommand):
 
     cli_name = "clusterdiff"
 
+    skip_crds: bool = opt(
+        False, help="Omit CustomResourceDefinitions from live lookups and server-side-apply dry runs."
+    )
+
     target: str | None = opt(
         None,
         help="Diff only this GitOps target's objects (kubernetes.deploymentUnits). Omit for the full kubernetes.generated set.",
@@ -2140,11 +2175,15 @@ class ClusterDiff(FencedCommand):
             _report_nix_error(exc)
         except ValidationError as exc:
             _report_validation_error("kubeapply config", exc)
-        objects = [await maybe_decrypt(obj) for obj in cfg.objects]
+        objects = [
+            await maybe_decrypt(obj)
+            for obj in cfg.objects
+            if not (self.skip_crds and obj.get("kind") == "CustomResourceDefinition")
+        ]
         api = await kr8s.asyncio.api()
         await self._fence(api, cfg)
         try:
-            diff_output = await cluster_diff(objects, api=api)
+            diff_output = await cluster_diff(objects, api=api, skip_crds=self.skip_crds)
         except kr8s.ServerError as exc:
             _report_server_error("clusterdiff", exc)
         if diff_output:
@@ -2575,5 +2614,5 @@ async def _run_profiled(command: Command) -> None:
     what the profiler now wraps. cProfile is a global trace hook and does not
     care either way; it loses only the loop's own set-up.
     """
-    with python_profile():
+    with package_placeholder_evaluation(enabled=False), python_profile():
         await command.run()

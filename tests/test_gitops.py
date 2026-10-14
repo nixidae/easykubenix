@@ -93,6 +93,19 @@ def test_file_groups_use_the_target_path() -> None:
     ]
 
 
+def test_file_groups_skip_crds_before_yaml_emission() -> None:
+    result = _result()
+    result.config.kubernetes.gitops_targets["apps"].objects.append(
+        {
+            "apiVersion": "apiextensions.k8s.io/v1",
+            "kind": "CustomResourceDefinition",
+            "metadata": {"name": "probes.example.org"},
+        }
+    )
+    assert file_groups(result, skip_crds=True) == file_groups(_result())
+    assert any("CustomResourceDefinition" in path for path, _ in file_groups(result))
+
+
 def test_branches_are_instance_wide() -> None:
     # One pair per easykubenix instance -- targets do not carry a branch.
     assert branches(_result()) == ("deploy", None)

@@ -114,15 +114,19 @@ async def cluster_diff(
     *,
     api: Api,
     field_manager: str = "ekn",
+    skip_crds: bool = False,
 ) -> str:
     """Diff `objects` against the live cluster: for each, compute what a
     real `ssa_apply` would produce (via a server-side-apply dry run) and
     unified-diff it against the object's current live state (empty if it
     doesn't exist yet). Doesn't apply, prune, or wait on anything -- purely
     a preview of what `ekn kubeapply`/`ekn validate` would actually change.
+    With `skip_crds`, CRDs are excluded before discovery, live reads, and dry runs.
     """
     chunks: list[str] = []
     for spec in sorted(objects, key=_object_label):
+        if skip_crds and spec.get("kind") == "CustomResourceDefinition":
+            continue
         label = _object_label(spec)
 
         # A seeded credential follows the same rule the apply does, keyed on
