@@ -97,6 +97,18 @@ def _config_map(name: str, data: dict[str, str]) -> dict[str, Any]:
     }
 
 
+class _CrdApi(FakeApi):
+    async def async_api_resources(self) -> list[dict[str, Any]]:
+        return [
+            {
+                "kind": "CustomResourceDefinition",
+                "version": "apiextensions.k8s.io/v1",
+                "name": "customresourcedefinitions",
+                "namespaced": False,
+            }
+        ]
+
+
 class TestNormalize:
     def test_strips_noisy_metadata_and_status(self) -> None:
         obj = {
@@ -125,6 +137,43 @@ class TestNormalize:
 
 
 class TestClusterDiff:
+    @pytest.mark.parametrize("skip_crds", [False, True])
+    async def test_skip_crds_avoids_live_reads_and_dry_runs(self, skip_crds: bool) -> None:
+        crd = {
+            "apiVersion": "apiextensions.k8s.io/v1",
+            "kind": "CustomResourceDefinition",
+            "metadata": {"name": "probes.example.org"},
+            "spec": {"description": "new schema"},
+        }
+        cfg = _config_map("cfg", {"key": "updated"})
+        crd_url = "customresourcedefinitions/probes.example.org"
+        api = _CrdApi(
+            {
+                ("GET", crd_url): {**crd, "spec": {"description": "old schema"}},
+                ("PATCH", crd_url): crd,
+                ("GET", "configmaps/cfg"): _config_map("cfg", {"key": "old"}),
+                ("PATCH", "configmaps/cfg"): cfg,
+            }
+        )
+        result = await cluster_diff([crd, cfg], api=api, skip_crds=skip_crds)  # type: ignore[arg-type]
+        assert "+  key: updated" in result
+        assert ("CustomResourceDefinition" in result) is (not skip_crds)
+        crd_calls = [(method, url) for method, url, _ in api.calls if url == crd_url]
+        assert crd_calls == ([] if skip_crds else [("GET", crd_url), ("PATCH", crd_url)])
+        assert all(
+            params is not None and params.get("dryRun") == "All" for method, _, params in api.calls if method == "PATCH"
+        )
+
+    async def test_skip_crd_only_diff_needs_no_object_api_calls(self) -> None:
+        crd = {
+            "apiVersion": "apiextensions.k8s.io/v1",
+            "kind": "CustomResourceDefinition",
+            "metadata": {"name": "probes.example.org"},
+        }
+        api = FakeApi({})
+        assert await cluster_diff([crd], api=api, skip_crds=True) == ""  # type: ignore[arg-type]
+        assert api.calls == []
+
     async def test_no_diff_when_live_matches_predicted(self) -> None:
         spec = _config_map("cfg", {"key": "value"})
         api = FakeApi(

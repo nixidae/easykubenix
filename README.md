@@ -107,6 +107,8 @@ See the demo for examples
 Use `ekn render --skip-crds` to omit CRD schemas from YAML output.
 Use `ekn diff --skip-crds` to ignore CRDs on both sides of a GitOps comparison.
 The diff also removes CRD kustomization references and empty generated kustomizations.
+Use `ekn clusterdiff --skip-crds` to omit CRD lookups, dry runs, and diff output against the live cluster.
+Custom resources remain in the comparison.
 `ekn render --validate --skip-crds` validates all objects before filtering output.
 Commit, deploy, and apply commands retain the full manifest set.
 

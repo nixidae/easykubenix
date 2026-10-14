@@ -6,12 +6,13 @@ import pytest
 
 from ekn import cli
 from ekn._cli import build_parser
+from ekn.eval import KubeApplyConfigResult
 
 if TYPE_CHECKING:
     from huggorm.jsonprimop import JsonValue
 
 
-@pytest.mark.parametrize("operation", ["render", "diff"])
+@pytest.mark.parametrize("operation", ["render", "diff", "clusterdiff"])
 def test_inspection_commands_accept_skip_crds(operation: str) -> None:
     parsed = build_parser(cli.Ekn).parse_args([operation, "--skip-crds"])
     assert parsed.skip_crds is True
@@ -87,3 +88,60 @@ async def test_diff_passes_skip_flag_to_render_and_comparison(
     await command.run()
     assert flags == [True, True]
     assert capsys.readouterr().out == "visible workload diff\n"
+
+
+@pytest.mark.parametrize("skip_crds", [False, True])
+async def test_clusterdiff_filters_before_decryption_and_keeps_cluster_fence(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], skip_crds: bool
+) -> None:
+    objects = [
+        {
+            "apiVersion": "apiextensions.k8s.io/v1",
+            "kind": "CustomResourceDefinition",
+            "metadata": {"name": "probes.example.org"},
+        },
+        {"apiVersion": "example.org/v1", "kind": "Probe", "metadata": {"name": "probe"}},
+    ]
+    cfg = KubeApplyConfigResult.model_validate(
+        {
+            "groups": [{"unit": None, "field_manager": "ekn", "objects": objects}],
+            "environment": "test",
+            "resource_priority": {},
+            "sops_age_identities": [],
+        }
+    )
+    selected = objects[1:] if skip_crds else objects
+    decrypted = []
+    calls = []
+    api = object()
+
+    async def evaluate(*_args: object) -> KubeApplyConfigResult:
+        return cfg
+
+    async def decrypt(manifest: object) -> object:
+        decrypted.append(manifest)
+        return manifest
+
+    async def connect() -> object:
+        return api
+
+    async def fence(_self: object, actual_api: object, actual_cfg: object) -> None:
+        assert actual_api is api
+        assert actual_cfg is cfg
+        calls.append("fence")
+
+    async def diff(manifests: object, **kwargs: object) -> str:
+        assert manifests == selected
+        assert kwargs == {"api": api, "skip_crds": skip_crds}
+        calls.append("diff")
+        return "visible custom resource diff\n"
+
+    monkeypatch.setattr(cli, "evaluate_kubeapply_config", evaluate)
+    monkeypatch.setattr(cli, "maybe_decrypt", decrypt)
+    monkeypatch.setattr(cli.kr8s.asyncio, "api", connect)
+    monkeypatch.setattr(cli.ClusterDiff, "_fence", fence)
+    monkeypatch.setattr(cli, "cluster_diff", diff)
+    await cli.ClusterDiff(file=".", skip_crds=skip_crds).run()
+    assert decrypted == selected
+    assert calls == ["fence", "diff"]
+    assert capsys.readouterr().out == "visible custom resource diff\n"
