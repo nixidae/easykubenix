@@ -9,7 +9,7 @@ import structlog
 import yaml
 
 from ekn import seeds
-from ekn.nixyaml import KubernetesDumper
+from ekn.manifestyaml import dump_manifest
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -66,8 +66,8 @@ def resolved_targets(gitops_targets: dict[str, GitOpsTargetEntry]) -> dict[GitOp
     Each target's `rawFiles` (paths only, per easykubenix) are read and
     parsed here and appended to the same manifest list `objects` populates
     -- from here on a raw-file-sourced manifest is just a dict like any
-    other; `flatten_manifests` writes it via the same `yaml.dump(...,
-    sort_keys=False)` call either way, which is what actually preserves
+    other; `flatten_manifests` writes it via the same YAML emitter
+    either way, which is what actually preserves
     its order (parsed-from-file dicts already have the right order;
     Nix-evaluated ones don't, but weren't order-sensitive to begin with).
     """
@@ -108,51 +108,8 @@ def flatten_manifests(  # noqa: C901 -- tracked complexity/arg-count debt, see T
         if not isinstance(namespace, str) or not isinstance(name, str):
             continue
         path = base / namespace / kind / f"{name}.yaml"
-        # CSafeDumper (libyaml-backed) instead of the pure-Python Dumper:
-        # benchmarked ~7.5x faster (5.0s -> 0.67s for a 371-object render,
-        # dominated by CRDs' multi-hundred-KB bodies).
-        #
-        # **`CSafeDumper` is `CEmitter` + the pure-Python `SafeRepresenter`.**
-        # Only emission is C; the walk that turns objects into a node tree is
-        # not, and it becomes the dominant cost once the emitter goes. Measured
-        # over 200 CRD-shaped objects:
-        #
-        #   SafeDumper    5.483s   emitter.py 67.1%, representer.py  2.0%
-        #   CSafeDumper   0.237s   emitter.py absent, representer.py 69.5%
-        #
-        # So a profile of this path showing `yaml/representer.py` at the top is
-        # evidence that libyaml is already in use, not that it is missing.
-        # Switching dumper cannot remove that time; only not using PyYAML's
-        # representer could. Do not read those frames as a missed 7x.
-        #
-        # On the text: with these settings the two dumpers agree on plain
-        # scalars and disagree on long double-quoted ones, where they break the
-        # line in different places and `width` does not reconcile them. Both
-        # parse equal. Neither case was measured against a real deploy tree, so
-        # read that as "they can differ" rather than as a survey of where.
-        #
-        # It is recorded because these files are committed. Changing what emits
-        # them reflows the tree once, which is a review cost rather than a
-        # correctness one, and it is the reason to leave this dumper alone
-        # absent a better motive than speed.
-        #
-        # The representer cost is per node, so it falls on whatever is largest
-        # -- CRDs and chart output, which arrived as text from disk and were
-        # never touched in Nix. Re-deriving them here walks bytes that were
-        # already correct on the way in. That is the output-side half of the
-        # argument in #35: data from disk should be parsed once in a sandbox
-        # and carried as cached JSON, rather than round-tripped through Nix
-        # values at both ends. Replacing this representer treats the symptom.
-        #
-        # It is not the git half. `pygit2` takes the finished `(path,
-        # content)` pairs, and `_resolve_gitops` builds them once for `diff`
-        # and `commit` together, so nothing here is serialised twice.
-        yaml_content = yaml.dump(
-            manifest,
-            default_flow_style=False,
-            sort_keys=False,
-            Dumper=KubernetesDumper,
-        )
+        # Direct events save 28% serialization CPU on 1,625 SOLID objects (#62).
+        yaml_content = dump_manifest(manifest)
         files.append((str(path), yaml_content))
 
         if not kustomize:
@@ -161,7 +118,7 @@ def flatten_manifests(  # noqa: C901 -- tracked complexity/arg-count debt, see T
         if isinstance(manifest.get("sops"), dict):
             generator_path = base / namespace / kind / f"{name}.ksops-generator.yaml"
             generator_name = f"{namespace}-{kind.lower()}-{name}-ksops"
-            generator_content = yaml.dump(
+            generator_content = dump_manifest(
                 {
                     "apiVersion": "viaduct.ai/v1",
                     "kind": "ksops",
@@ -179,9 +136,6 @@ def flatten_manifests(  # noqa: C901 -- tracked complexity/arg-count debt, see T
                     # in a subdirectory (namespace/kind/), which is always.
                     "files": [rel_path],
                 },
-                default_flow_style=False,
-                sort_keys=False,
-                Dumper=KubernetesDumper,
             )
             files.append((str(generator_path), generator_content))
             generators.append(str(generator_path.relative_to(base)))
@@ -197,12 +151,7 @@ def flatten_manifests(  # noqa: C901 -- tracked complexity/arg-count debt, see T
             kustomization["resources"] = resources
         if generators:
             kustomization["generators"] = generators
-        kustomization_content = yaml.dump(
-            kustomization,
-            default_flow_style=False,
-            sort_keys=False,
-            Dumper=KubernetesDumper,
-        )
+        kustomization_content = dump_manifest(kustomization)
         files.append((str(base / "kustomization.yaml"), kustomization_content))
 
     return files
