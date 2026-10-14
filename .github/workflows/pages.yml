@@ -1,0 +1,69 @@
+# The one workflow of easykubenix's own repository, which josh exports from
+# nixidae (nixidae/nixidae#4). It deploys the docs site. The tests run in
+# nixidae, from ci/workflows/tests.nix.
+name: Pages
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  docs-build:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      # cachix/install-nix-action installs a daemon, which builds in a
+      # sandbox; nixidae's tests workflow says why that matters here.
+      - uses: cachix/install-nix-action@master
+        with:
+          extra_nix_config: |
+            access-tokens = github.com=${{ github.token }}
+            experimental-features = nix-command flakes
+            trusted-users = root runner
+            trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= lillecarl.cachix.org-1:NN/LLMg7mbyvZCu32Qlo8LpSHqNw7Rr3VBCEYQvRpT0=
+            substituters = https://cache.nixos.org?priority=1 https://lillecarl.cachix.org?priority=2
+
+      - uses: cachix/cachix-action@v15
+        with:
+          name: lillecarl
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+          useDaemon: false
+
+      # `--file .`, not `.#easykubenix-docs`: a flake must never be the only
+      # way to build something here.
+      - name: Build documentation
+        run: nix build --file . passthru.easykubenix-docs --out-link result --print-build-logs --print-out-paths
+
+      - name: Verify docs closure
+        run: nix store verify --recursive --no-trust "$(readlink -f result)"
+
+      - name: Prepare Pages artifact
+        run: |
+          mkdir -p public
+          cp -r --no-preserve=mode,ownership result/. public/
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+  docs-deploy:
+    if: github.ref == 'refs/heads/main'
+    needs: docs-build
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

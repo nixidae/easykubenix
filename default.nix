@@ -429,6 +429,10 @@ in
 
   deploymentScript = eval.config.kluctl.script;
   validationScript = eval.config.validation.script;
+
+  # The workflows that run the tests. nixidae renders each one to
+  # `.github/workflows/easykubenix-<name>.yml`.
+  ciTestWorkflows.tests = import ./ci/workflows/tests.nix;
   passthru = {
     # `grpclib-transports` was here too, but nanopynix vendors that project
     # now (it is no longer a flake input) and stopped exposing it as a
