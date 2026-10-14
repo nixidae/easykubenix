@@ -102,7 +102,7 @@ the number and reads as evaluation.
 # Issues
 
 Issues go to the GitHub issue tracker, `gh issue create --repo
-Lillecarl/easykubenix`. Every nixidae project works this way.
+nixidae/easykubenix`. Every nixidae project works this way.
 
 Do not use `git-bug` here. It is solid-kubernetes' tracker, for a repository
 that has no GitHub one, and reaching for it in a nixidae project puts an issue

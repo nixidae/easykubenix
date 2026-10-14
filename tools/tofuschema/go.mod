@@ -1,4 +1,4 @@
-module github.com/lillecarl/ekn-tofuschema
+module github.com/nixidae/ekn-tofuschema
 
 go 1.25
 

@@ -1,6 +1,6 @@
 # easykubenix
 
-[![Documentation](https://img.shields.io/badge/docs-lillecarl.github.io-blue)](https://nixidae.github.io/easykubenix/)
+[![Documentation](https://img.shields.io/badge/docs-nixidae.github.io-blue)](https://nixidae.github.io/easykubenix/)
 
 Note that a lot of this text is AI slop(because i write like a toddler), don't
 judge the book by it's cover though!

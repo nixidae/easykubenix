@@ -1,4 +1,4 @@
-module github.com/lillecarl/ekn-yaml2json
+module github.com/nixidae/ekn-yaml2json
 
 go 1.24.0
 
