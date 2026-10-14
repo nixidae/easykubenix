@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: Apache-2.0
 """Where the cluster fence sits inside `ekn kubeapply`.
 
 Not whether it refuses -- `test_clusterfence.py` covers that -- but whether it

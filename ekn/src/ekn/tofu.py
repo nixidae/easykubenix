@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: Apache-2.0
 """Run OpenTofu over a `class = "tf"` deployment unit.
 
 A `tf` unit is a whole separate easykubenix instance whose modules declare

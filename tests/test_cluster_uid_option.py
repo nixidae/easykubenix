@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: Apache-2.0
 """`ekn.clusterUid` as the module system sees it, and as `ekn` reads it.
 
 A real instance, because the type is half the design: the option refuses

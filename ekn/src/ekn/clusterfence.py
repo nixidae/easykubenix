@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: Apache-2.0
 """Refuse to act against a cluster the configuration does not name.
 
 **The ambient kubeconfig is not a neutral default.** With nothing declared

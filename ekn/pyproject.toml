@@ -4,6 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ekn"
+license = "Apache-2.0"
 version = "0.1.0"
 description = "easykubenix CLI"
 # `3.13`, which is what this program really needs, and `ruff.toml` targets it. The floor said `3.10` while the source

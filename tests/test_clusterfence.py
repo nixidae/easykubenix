@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: Apache-2.0
 """`clusterfence.require`, which is what stops an apply reaching the wrong
 cluster.
 

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: Apache-2.0
 """Bootstrap credentials seeded from the environment at apply time.
 
 A cluster cannot invent its own ArgoCD repository credential, nor the

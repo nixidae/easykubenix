@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: Apache-2.0
 """`--confirm-context` is removed, and says so.
 
 Declared and refused rather than deleted. Deleting it gives argparse's
