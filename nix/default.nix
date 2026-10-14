@@ -14,6 +14,7 @@ let
   nanopynix = import sources.nanopynix { inherit pkgs sources; };
 
   root = import ../default.nix { inherit pkgs sources; };
+  package-ref = import ./package-ref.nix { inherit pkgs root; };
 
   # The gates over the doc examples. Plain derivations, so they build from a
   # bare `import` -- see ../checks.nix for the entry point CI uses, and
@@ -335,6 +336,7 @@ in
 
   checks = examples.checks // {
     inherit
+      package-ref
       ekn-sandbox
       ekn-completions
       yaml2json
@@ -353,6 +355,7 @@ in
     all = pkgs.runCommand "easykubenix-checks" {
       checks = [
         examples.checks.all
+        package-ref
         ekn-sandbox
         ekn-completions
         yaml2json

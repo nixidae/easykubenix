@@ -6,4 +6,5 @@
 
 examples
 schema-check
+package-references
 ```
