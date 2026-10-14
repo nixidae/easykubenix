@@ -83,6 +83,8 @@ def flatten_manifests(  # noqa: C901 -- tracked complexity/arg-count debt, see T
     data: Sequence[JsonValue],
     subdir: str = "./",
     kustomize: bool = False,
+    *,
+    skip_crds: bool = False,
 ) -> list[tuple[str, str]]:
     """Render a list of manifests to `(path, yaml_content)` pairs, optionally
     alongside a kustomize `kustomization.yaml` (plus a ksops generator for any
@@ -102,6 +104,8 @@ def flatten_manifests(  # noqa: C901 -- tracked complexity/arg-count debt, see T
         metadata = manifest.get("metadata")
         kind = manifest.get("kind")
         if not isinstance(metadata, dict) or not isinstance(kind, str):
+            continue
+        if skip_crds and kind == "CustomResourceDefinition":
             continue
         namespace = metadata.get("namespace", "none")
         name = metadata.get("name")
@@ -209,7 +213,36 @@ def without_seeded(manifests: list[Manifest], path: str) -> tuple[list[Manifest]
     return committable, withheld
 
 
-def file_groups(result: GitOpsManifestsResult) -> list[tuple[str, str]]:
+def is_crd_file(path: str) -> bool:
+    """Identify CRD manifests and generators in the generated namespace/kind/name layout."""
+    parsed = PurePosixPath(path)
+    return parsed.parent.name == "CustomResourceDefinition" and parsed.suffix in (".yaml", ".yml")
+
+
+def without_crd_references(content: str) -> str | None:
+    """Remove generated CRD references, omitting an empty generated kustomization."""
+    document = yaml.load(content, Loader=yaml.CSafeLoader)
+    if not isinstance(document, dict):
+        return content
+    changed = False
+    for field in ("resources", "generators"):
+        entries = document.get(field)
+        if not isinstance(entries, list):
+            continue
+        kept = [entry for entry in entries if not (isinstance(entry, str) and is_crd_file(entry))]
+        if kept == entries:
+            continue
+        changed = True
+        if kept:
+            document[field] = kept
+        else:
+            del document[field]
+    if document == {"apiVersion": "kustomize.config.k8s.io/v1beta1", "kind": "Kustomization"}:
+        return None
+    return dump_manifest(document) if changed else content
+
+
+def file_groups(result: GitOpsManifestsResult, *, skip_crds: bool = False) -> list[tuple[str, str]]:
     """Merge every GitOps target's rendered objects into one file list.
 
     Targets are pure path-routing (`gitOps.targets.<name>.path`) -- there is
@@ -230,7 +263,7 @@ def file_groups(result: GitOpsManifestsResult) -> list[tuple[str, str]]:
     for target, target_manifests in routed.items():
         committable, target_withheld = without_seeded(target_manifests, target.path)
         withheld.extend(target_withheld)
-        for path, content in flatten_manifests(committable, target.path, kustomize=True):
+        for path, content in flatten_manifests(committable, target.path, kustomize=True, skip_crds=skip_crds):
             existing = files.get(path)
             if existing is not None and existing != content:
                 raise GitOpsTargetError(f"conflicting generated content for {path}")
@@ -255,7 +288,9 @@ __all__ = [
     "branches",
     "file_groups",
     "flatten_manifests",
+    "is_crd_file",
     "load_raw_manifest",
     "resolved_targets",
+    "without_crd_references",
     "without_seeded",
 ]

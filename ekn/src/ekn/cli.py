@@ -269,6 +269,10 @@ class Eval(AttrCommand):
 class Render(AttrCommand):
     """Render Kubernetes manifests as YAML on stdout."""
 
+    skip_crds: bool = opt(
+        False, help="Omit CustomResourceDefinitions from output; --validate still checks all objects."
+    )
+
     validate: bool = opt(
         False,
         help="Check every object against its JSON schema before writing any: built-in kinds from "
@@ -294,7 +298,7 @@ class Render(AttrCommand):
                 lambda catalog: _load_spec(catalog, spec_dir),
                 stream=sys.stderr,
             )
-        for _, content in flatten_manifests(manifests):
+        for _, content in flatten_manifests(manifests, skip_crds=self.skip_crds):
             sys.stdout.write("---\n")
             sys.stdout.write(content)
 
@@ -302,11 +306,15 @@ class Render(AttrCommand):
 class Diff(AttrCommand):
     """Diff GitOps-routed manifests against the deploy branch."""
 
+    skip_crds: bool = opt(False, help="Ignore generated CRD files and their kustomization references on both sides.")
+
     async def run(self) -> None:
         # `ekn diff` moves no ref, so it does not assert fetchability.
-        deploy_branch, _source_branch, files, _assert_cached = await _resolve_gitops(self.file, self.flake, self.attr)
+        deploy_branch, _source_branch, files, _assert_cached = await _resolve_gitops(
+            self.file, self.flake, self.attr, skip_crds=self.skip_crds
+        )
         try:
-            diff_output = diff_manifests(".", deploy_branch, files)
+            diff_output = diff_manifests(".", deploy_branch, files, skip_crds=self.skip_crds)
         except Exception as exc:
             _log.error("diff failed: %s", exc)
             raise SystemExit(1) from exc
@@ -321,6 +329,8 @@ async def _resolve_gitops(
     file: _Path | None,
     flake: str | None,
     attr: str | None,
+    *,
+    skip_crds: bool = False,
 ) -> tuple[str, str | None, list[tuple[str, str]], list[str]]:
     """Evaluate GitOps manifests and return `(deploy_branch, source_branch,
     files, assert_cached)` -- one branch pair per easykubenix instance, see
@@ -332,7 +342,7 @@ async def _resolve_gitops(
     """
     result = await _evaluate_gitops(file, flake, attr)
     try:
-        files = gitops_file_groups(result)
+        files = gitops_file_groups(result, skip_crds=skip_crds)
         # Each `tf` unit's `config.tf.json`, beside the manifests and on the
         # same branch. Committed so the infrastructure change is reviewable as
         # a diff, the same way the rendered objects are.

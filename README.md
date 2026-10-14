@@ -102,6 +102,14 @@ as it requires running `helm template` during Nix evaluation.
 
 See the demo for examples
 
+### Inspecting manifests without CRDs
+
+Use `ekn render --skip-crds` to omit CRD schemas from YAML output.
+Use `ekn diff --skip-crds` to ignore CRDs on both sides of a GitOps comparison.
+The diff also removes CRD kustomization references and empty generated kustomizations.
+`ekn render --validate --skip-crds` validates all objects before filtering output.
+Commit, deploy, and apply commands retain the full manifest set.
+
 ### Naming the cluster
 
 `ekn.clusterUid` is the `uid` of the target cluster's `kube-system` Namespace.

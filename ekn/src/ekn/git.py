@@ -13,6 +13,8 @@ import anyio
 import pygit2
 from anyio import Path as AsyncPath
 
+from ekn.gitops import is_crd_file, without_crd_references
+
 _SOURCE_TRAILER_KEY = "ekn-source"
 _SOURCE_TRAILER_RE = re.compile(rf"^{re.escape(_SOURCE_TRAILER_KEY)}: (?P<oid>[0-9a-f]{{4,40}})$", re.MULTILINE)
 
@@ -130,10 +132,29 @@ def commit_manifests(
     return str(commit_id)
 
 
+def _without_crds(repo: Any, tree_id: Any) -> Any:
+    index = pygit2.Index()
+    index.read_tree(repo[tree_id])
+    for entry in list(index):
+        if is_crd_file(entry.path):
+            index.remove(entry.path)
+        elif Path(entry.path).name == "kustomization.yaml":
+            content = repo[entry.id].data.decode("utf-8")
+            filtered = without_crd_references(content)
+            if filtered is None:
+                index.remove(entry.path)
+            elif filtered != content:
+                blob_id = repo.create_blob(filtered.encode("utf-8"))
+                index.add(pygit2.IndexEntry(entry.path, blob_id, entry.mode))
+    return index.write_tree(repo)
+
+
 def diff_manifests(
     repo_path: str,
     branch_name: str,
     new_files: list[tuple[str, str]],
+    *,
+    skip_crds: bool = False,
 ) -> str | None:
     repo = pygit2.Repository(_repo_path(repo_path))
     new_tree_id = _build_tree(repo, new_files)
@@ -143,6 +164,10 @@ def diff_manifests(
         old_tree_id = branch.peel(pygit2.Commit).tree_id
     except KeyError:
         old_tree_id = repo.TreeBuilder().write()
+
+    if skip_crds:
+        old_tree_id = _without_crds(repo, old_tree_id)
+        new_tree_id = _without_crds(repo, new_tree_id)
 
     buf = io.StringIO()
     for patch in repo.diff(old_tree_id, new_tree_id):
