@@ -14,6 +14,7 @@ import pygit2
 from anyio import Path as AsyncPath
 
 from ekn.gitops import is_crd_file, without_crd_references
+from ekn.packageplaceholders import normalize_manifest_yaml
 
 _SOURCE_TRAILER_KEY = "ekn-source"
 _SOURCE_TRAILER_RE = re.compile(rf"^{re.escape(_SOURCE_TRAILER_KEY)}: (?P<oid>[0-9a-f]{{4,40}})$", re.MULTILINE)
@@ -149,12 +150,27 @@ def _without_crds(repo: Any, tree_id: Any) -> Any:
     return index.write_tree(repo)
 
 
+def _without_package_paths(repo: Any, tree_id: Any) -> Any:
+    index = pygit2.Index()
+    index.read_tree(repo[tree_id])
+    for entry in list(index):
+        if Path(entry.path).suffix not in {".yaml", ".yml"}:
+            continue
+        content = repo[entry.id].data.decode("utf-8")
+        normalized = normalize_manifest_yaml(content)
+        if normalized != content:
+            blob_id = repo.create_blob(normalized.encode("utf-8"))
+            index.add(pygit2.IndexEntry(entry.path, blob_id, entry.mode))
+    return index.write_tree(repo)
+
+
 def diff_manifests(
     repo_path: str,
     branch_name: str,
     new_files: list[tuple[str, str]],
     *,
     skip_crds: bool = False,
+    package_placeholders: bool = False,
 ) -> str | None:
     repo = pygit2.Repository(_repo_path(repo_path))
     new_tree_id = _build_tree(repo, new_files)
@@ -168,6 +184,10 @@ def diff_manifests(
     if skip_crds:
         old_tree_id = _without_crds(repo, old_tree_id)
         new_tree_id = _without_crds(repo, new_tree_id)
+
+    if package_placeholders:
+        old_tree_id = _without_package_paths(repo, old_tree_id)
+        new_tree_id = _without_package_paths(repo, new_tree_id)
 
     buf = io.StringIO()
     for patch in repo.diff(old_tree_id, new_tree_id):

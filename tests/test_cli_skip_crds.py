@@ -53,6 +53,7 @@ async def test_render_validates_crds_before_filtering_output(
     command.flake = None
     command.attr = None
     command.validate = validate
+    command.package_placeholders = False
     command.skip_crds = skip_crds
     await command.run()
     output = capsys.readouterr().out
@@ -85,6 +86,7 @@ async def test_diff_passes_skip_flag_to_render_and_comparison(
     command.flake = None
     command.attr = None
     command.skip_crds = True
+    command.package_placeholders = False
     await command.run()
     assert flags == [True, True]
     assert capsys.readouterr().out == "visible workload diff\n"

@@ -76,6 +76,7 @@ from ekn.gitops import (
     flatten_manifests,
 )
 from ekn.nixyaml import from_go_like_yaml_stream, from_yaml11_stream, from_yaml_stream, to_yaml
+from ekn.packageplaceholders import evaluation_mode as package_placeholder_evaluation
 from ekn.reclaim import reclaim
 from ekn.schemacheck import Catalog, GroupVersionKind, Report, add_rendered_crds, check
 from ekn.schemapolicy import PolicyResult, check_policies
@@ -269,6 +270,10 @@ class Eval(AttrCommand):
 class Render(AttrCommand):
     """Render Kubernetes manifests as YAML on stdout."""
 
+    package_placeholders: bool = opt(
+        False, help="Use lazy package placeholders for inspection; output contains non-deployable package paths."
+    )
+
     skip_crds: bool = opt(
         False, help="Omit CustomResourceDefinitions from output; --validate still checks all objects."
     )
@@ -283,9 +288,10 @@ class Render(AttrCommand):
     async def run(self) -> None:
         uri, customer = _parse_flake(self.flake) if self.flake is not None else (None, None)
         try:
-            manifests, spec_dir = await evaluate_generated_with_spec(
-                self.file, uri, customer, self.attr, with_spec=self.validate
-            )
+            with package_placeholder_evaluation(enabled=self.package_placeholders):
+                manifests, spec_dir = await evaluate_generated_with_spec(
+                    self.file, uri, customer, self.attr, with_spec=self.validate
+                )
         except NixError as exc:
             _report_nix_error(exc)
         if not isinstance(manifests, list):
@@ -306,15 +312,22 @@ class Render(AttrCommand):
 class Diff(AttrCommand):
     """Diff GitOps-routed manifests against the deploy branch."""
 
+    package_placeholders: bool = opt(
+        False, help="Use lazy package placeholders and ignore store roots and manifest hashes on both sides."
+    )
+
     skip_crds: bool = opt(False, help="Ignore generated CRD files and their kustomization references on both sides.")
 
     async def run(self) -> None:
         # `ekn diff` moves no ref, so it does not assert fetchability.
-        deploy_branch, _source_branch, files, _assert_cached = await _resolve_gitops(
-            self.file, self.flake, self.attr, skip_crds=self.skip_crds
-        )
+        with package_placeholder_evaluation(enabled=self.package_placeholders):
+            deploy_branch, _source_branch, files, _assert_cached = await _resolve_gitops(
+                self.file, self.flake, self.attr, skip_crds=self.skip_crds
+            )
         try:
-            diff_output = diff_manifests(".", deploy_branch, files, skip_crds=self.skip_crds)
+            diff_output = diff_manifests(
+                ".", deploy_branch, files, skip_crds=self.skip_crds, package_placeholders=self.package_placeholders
+            )
         except Exception as exc:
             _log.error("diff failed: %s", exc)
             raise SystemExit(1) from exc
@@ -2593,5 +2606,5 @@ async def _run_profiled(command: Command) -> None:
     what the profiler now wraps. cProfile is a global trace hook and does not
     care either way; it loses only the loop's own set-up.
     """
-    with python_profile():
+    with package_placeholder_evaluation(enabled=False), python_profile():
         await command.run()

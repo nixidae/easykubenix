@@ -105,6 +105,12 @@ See the demo for examples
 ### Inspecting manifests without CRDs
 
 Use `ekn render --skip-crds` to omit CRD schemas from YAML output.
+Use `ekn render --package-placeholders` for inspection with lazy package references.
+Modules opt in with helpers such as SOLID's `ph`; other packages still evaluate normally.
+Use `ekn diff --package-placeholders` to normalize store roots on both comparison inputs.
+This ignores package identity changes and manifest hashes, while preserving paths after each store root.
+Normalization affects Kubernetes YAML only; OpenTofu files remain exact.
+Placeholder render output contains non-deployable paths. Delivery commands clear the internal preview environment variable.
 Use `ekn diff --skip-crds` to ignore CRDs on both sides of a GitOps comparison.
 The diff also removes CRD kustomization references and empty generated kustomizations.
 Use `ekn clusterdiff --skip-crds` to omit CRD lookups, dry runs, and diff output against the live cluster.
