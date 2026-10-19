@@ -7,7 +7,7 @@ failing for hours. Either half alone was survivable; together they took out
 the only copy of the environment the store server mounts, and the push that
 fixes it goes through that same store server.
 
-Issue Lillecarl/easykubenix#19, and #37 for why the walk is in `ekn`.
+Issue nixidae/nixidae#371, and #37 for why the walk is in `ekn`.
 
 The probe is injected, so these exercise the walk itself -- the union across
 substituters, the closure, and the three-way answer -- rather than a store.

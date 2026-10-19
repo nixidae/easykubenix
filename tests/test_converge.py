@@ -10,7 +10,7 @@ healthy from outside: a retried 403 reports an RBAC error as a slow success,
 an object that never applies must not vanish from the report, a recreate of
 the wrong kind destroys data no re-apply brings back, and an apply that
 *succeeds* against an object being deleted is the one failure the retry
-ladder cannot see at all. Issue Lillecarl/easykubenix#28.
+ladder cannot see at all. Issue nixidae/nixidae#450.
 """
 
 from __future__ import annotations
@@ -481,7 +481,7 @@ class TestTheCorpus:
 
     Captured from a live cluster by solid-kubernetes rather than invented
     here, because the first version of this table was invented and three of
-    these did not match it. Issue Lillecarl/easykubenix#28.
+    these did not match it. Issue nixidae/nixidae#450.
     """
 
     def test_a_kind_the_server_does_not_serve_is_retried(self) -> None:

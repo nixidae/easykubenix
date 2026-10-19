@@ -26,7 +26,7 @@ candidates on a pty in bash, zsh and fish, and picked it for that; `ekn` and
 **A copy of nanopynix' `pynix._cli`, and not an import of it.** `ekn` does not
 depend on `pynix`: `pynix` is a separate project in that repository and is not
 in this program's closure. The two files are small and they answer
-the same question, so each repository keeps its own for now. nanopynix#222 asks
+the same question, so each repository keeps its own for now. nixidae/nixidae#261 asks
 for the layer as a library, which is what would delete this file.
 
 **`argparse.SUPPRESS` is what says the caller named an option.** An option that

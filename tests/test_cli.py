@@ -767,7 +767,7 @@ class TestTheEnginePauseHoldsObjectsBack:
     Applying one re-applies its replica count and wakes the engine in the
     middle of the apply that paused it; skipping it without protecting it
     makes it absent from the desired set, which a prune answers with a
-    delete. Both halves or neither. Issue Lillecarl/easykubenix#28.
+    delete. Both halves or neither. Issue nixidae/nixidae#450.
     """
 
     CONTROLLER: ClassVar[dict[str, Any]] = {

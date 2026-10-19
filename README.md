@@ -510,7 +510,7 @@ See `design/opentofu.md`.
 `kluctl` is a CLI and GitOps tool that deploys manifests, and easykubenix can
 still generate a minimal kluctl project and deployment script. It predates
 `ekn kubeapply`, which now covers the same ground natively. See
-[issue #2](https://github.com/nixidae/easykubenix/issues/2); `kluctl.*`
+[issue #2](https://github.com/nixidae/nixidae/issues/143); `kluctl.*`
 options still work, and `kluctl.discriminator`/`kluctl.resourcePriority` have
 moved to `ekn.environment`/`ekn.resourcePriority` with warnings pointing at the
 new paths.

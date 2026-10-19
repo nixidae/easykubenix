@@ -12,7 +12,7 @@ description = "easykubenix CLI"
 requires-python = ">=3.13"
 authors = [{ name = "easykubenix contributors" }]
 dependencies = [
-  # Nix, in-process (easykubenix#52).
+  # Nix, in-process (nixidae/nixidae#693).
   "huggorm",
   "pydantic",
   # `ekn.fod` finds a fixed-output hash in Nix source by its syntax tree.

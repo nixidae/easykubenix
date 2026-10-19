@@ -142,7 +142,7 @@ def test_a_line_offers_what_it_should(line: str, expected: Sequence[str], monkey
 
 
 @pytest.mark.xfail(
-    strict=True, reason="argcomplete lexes `#` as the start of a comment; bash does not -- nanopynix#221"
+    strict=True, reason="argcomplete lexes `#` as the start of a comment; bash does not -- nixidae/nixidae#260"
 )
 def test_an_unquoted_flake_reference_does_not_stop_the_completion(monkeypatch: pytest.MonkeyPatch) -> None:
     """**The one line this program is typed with that answers wrongly.**
@@ -158,7 +158,7 @@ def test_an_unquoted_flake_reference_does_not_stop_the_completion(monkeypatch: p
     line. The mark is `strict`, so this test turns red the day argcomplete
     stops truncating and someone has to delete it.
 
-    nanopynix#221 tracks the fix. It is one line in `argcomplete.lexers`:
+    nixidae/nixidae#260 tracks the fix. It is one line in `argcomplete.lexers`:
     `lexer.commenters = ""`, because a command line is not a script.
     """
     assert candidates("ekn --flake .#app ren", monkeypatch) == {"render "}

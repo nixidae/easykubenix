@@ -13,7 +13,7 @@ succeeded for a while, and it reports every object that never applied.
 
 The classification is the whole design. "Retry with backoff" without one
 spends the settle window re-sending a schema error, and reports a clear
-failure slowly instead of quickly. Issue Lillecarl/easykubenix#28.
+failure slowly instead of quickly. Issue nixidae/nixidae#450.
 """
 
 from __future__ import annotations

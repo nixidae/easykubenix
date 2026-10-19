@@ -2,7 +2,7 @@
 
 Every test here is about one property: a pause that cannot be resumed is
 worse than no pause, because it leaves a cluster with no reconciler and
-nobody watching. Issue Lillecarl/easykubenix#28.
+nobody watching. Issue nixidae/nixidae#450.
 """
 
 from __future__ import annotations

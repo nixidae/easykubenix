@@ -102,7 +102,9 @@ the number and reads as evaluation.
 # Issues
 
 Issues go to the GitHub issue tracker, `gh issue create --repo
-nixidae/easykubenix`. Every nixidae project works this way.
+nixidae/nixidae --label "source: easykubenix"`. Every nixidae project works
+this way. An old `easykubenix#N` maps to its new number through
+`nix/issue-migration/map.jsonl` in the monorepo.
 
 Do not use `git-bug` here. It is solid-kubernetes' tracker, for a repository
 that has no GitHub one, and reaching for it in a nixidae project puts an issue

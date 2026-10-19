@@ -248,7 +248,7 @@ class TestTheBranchOrderIsLoadBearing:
     58.8%, attribute sets 32.1%, `null` 0.02% -- because `oneOf` is a left
     fold and a value matching at position k pays k checks. These two must
     survive the next person who re-counts and re-sorts. Issue
-    Lillecarl/easykubenix#31.
+    nixidae/nixidae#456.
     """
 
     async def test_an_absolute_path_string_stays_a_string(self) -> None:
@@ -283,7 +283,7 @@ class TestUntypedValues:
 
     For something large and opaque that nobody merges field by field -- a
     CRD's OpenAPI schema, a Grafana dashboard. Typed, 39 dashboards cost
-    0.740s; carried, 0.158s. Issue Lillecarl/easykubenix#32.
+    0.740s; carried, 0.158s. Issue nixidae/nixidae#457.
     """
 
     async def test_one_definition_unwraps_to_its_content(self) -> None:

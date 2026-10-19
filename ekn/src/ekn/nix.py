@@ -6,7 +6,7 @@ and Nix's log routed to stderr the way `ekn` wants it. `Value` keeps the lazy
 reads the value.
 
 In-process, not in a worker. Nix is stable, and a worker pays only for
-massively parallel evaluation (easykubenix#52).
+massively parallel evaluation (nixidae/nixidae#693).
 """
 
 from __future__ import annotations

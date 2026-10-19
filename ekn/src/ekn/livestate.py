@@ -17,7 +17,7 @@ OpenAPI schemas of 188 CustomResourceDefinitions that none of the three
 consumers reads. The same sweep asking for `PartialObjectMetadataList` is
 2.56 MB, 18 times smaller, and `ObjectMeta` is exactly and only what the
 three need. Measured by solid-kubernetes on nixlab2; issue
-Lillecarl/easykubenix#28.
+nixidae/nixidae#450.
 
 `sweep` is that LIST, and the rest of this module is the decisions made from
 what it returns.
