@@ -17,7 +17,10 @@ stdenvNoCC.mkDerivation {
   pname = "easykubenix-docs";
   version = "0";
 
-  src = ../.;
+  src = lib.fileset.toSource {
+    root = ../.;
+    fileset = ../docs;
+  };
 
   nativeBuildInputs = [ pythonEnv ];
 
