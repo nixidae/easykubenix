@@ -31,15 +31,13 @@ from typing import TYPE_CHECKING, Any
 
 import kr8s
 import structlog
-
-from .apply import DEFAULT_ENVIRONMENT_LABEL, DEFAULT_UNIT_LABEL, KindNotServedError, build_object
+from kappy.apply import DEFAULT_ENVIRONMENT_LABEL, DEFAULT_UNIT_LABEL, KindNotServedError, build_object
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
 
+    from kappy.apply import Manifest
     from kr8s.asyncio import Api
-
-    from .apply import Manifest
 
 _log = structlog.get_logger()
 

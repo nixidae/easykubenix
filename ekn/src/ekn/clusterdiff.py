@@ -8,15 +8,14 @@ from typing import TYPE_CHECKING, Any
 
 import kr8s
 import yaml
+from kappy.apply import build_object, ssa_apply
 
 from ekn import seeds
-from ekn.apply import build_object, ssa_apply
 
 if TYPE_CHECKING:
     from huggorm.jsonprimop import JsonValue
+    from kappy.apply import Manifest
     from kr8s.asyncio import Api  # kr8s.asyncio.api() returns this, not kr8s.Api
-
-    from ekn.apply import Manifest
 
 # Fields the API server/controllers own, not us -- present on every live
 # object and every dry-run-applied result regardless of whether the spec

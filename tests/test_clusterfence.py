@@ -13,8 +13,8 @@ from __future__ import annotations
 from typing import Any, ClassVar
 
 import pytest
+from kappy.testing import FakeApi
 from structlog.testing import capture_logs
-from test_apply import FakeApi
 
 from ekn import clusterfence
 from ekn.clusterfence import OVERRIDE_FLAG, require

@@ -29,10 +29,9 @@ from kr8s.asyncio.objects import Deployment, StatefulSet
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
 
+    from kappy.apply import Manifest
     from kr8s.asyncio import Api
     from kr8s.asyncio.objects import APIObject
-
-    from .apply import Manifest
 
 _log = structlog.get_logger()
 

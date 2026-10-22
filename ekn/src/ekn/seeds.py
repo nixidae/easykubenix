@@ -26,16 +26,14 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 
 import kr8s
 import structlog
-
-from ekn.apply import build_object
+from kappy.apply import build_object
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
 
     from huggorm.jsonprimop import JsonValue
+    from kappy.apply import Manifest
     from kr8s.asyncio import Api
-
-    from ekn.apply import Manifest
 
 _log = structlog.get_logger()
 

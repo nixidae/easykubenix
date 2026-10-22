@@ -12,14 +12,13 @@ import anyio
 import kr8s
 import structlog
 import yaml
-
-from ekn.apply import apply_one, build_object
+from kappy.apply import apply_one, build_object
 
 if TYPE_CHECKING:
     from huggorm.jsonprimop import JsonValue
+    from kappy.apply import Manifest
     from kr8s.asyncio import Api  # kr8s.asyncio.api() returns this, not kr8s.Api
 
-    from ekn.apply import Manifest
     from ekn.eval import SopsAgeIdentity
 
 _log = structlog.get_logger()

@@ -7,8 +7,8 @@ from typing import Any, cast
 import anyio
 import pytest
 from huggorm.errors import NixError
+from kappy.apply import DEFAULT_BARRIER_PRIORITY, DEFAULT_FIELD_MANAGER
 
-from ekn.apply import DEFAULT_BARRIER_PRIORITY, DEFAULT_FIELD_MANAGER
 from ekn.attrpath import EvaluationTargetError
 from ekn.eval import (
     evaluate_file,

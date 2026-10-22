@@ -16,10 +16,10 @@ import anyio
 import structlog
 from anyio import Path
 from huggorm.errors import NixError
+from kappy.apply import DEFAULT_FIELD_MANAGER, DEFAULT_UNIT_LABEL
 from pydantic import BaseModel, Field, StringConstraints
 
 from ekn import nix
-from ekn.apply import DEFAULT_FIELD_MANAGER, DEFAULT_UNIT_LABEL
 from ekn.fod import (
     derivation_name_from_path,
     extract_fod_hash_mismatch,

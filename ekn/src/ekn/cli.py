@@ -21,20 +21,20 @@ import structlog
 from anyio import Path
 from huggorm.errors import NixError
 from huggorm.jsonprimop import JsonValue
-from pydantic import TypeAdapter, ValidationError
-
-from ekn import clusterfence, enginepause, fastcache, livestate, seeds, storecheck
-from ekn._cli import Command, build_parser, complete, dispatch, opt, pos
-from ekn.apply import (
+from kappy.apply import (
     DEFAULT_DELIVERY_MANAGERS,
     DEFAULT_ENVIRONMENT_LABEL,
     DEFAULT_FIELD_MANAGER,
     apply_and_prune,
     prune_generation,
 )
+from kappy.converge import DEFAULT_CONCURRENCY, DEFAULT_SETTLE_SECONDS
+from kappy.directapply import converge_direct, report_failures
+from pydantic import TypeAdapter, ValidationError
+
+from ekn import clusterfence, enginepause, fastcache, livestate, seeds, storecheck
+from ekn._cli import Command, build_parser, complete, dispatch, opt, pos
 from ekn.clusterdiff import cluster_diff
-from ekn.converge import DEFAULT_CONCURRENCY, DEFAULT_SETTLE_SECONDS
-from ekn.directapply import converge_direct, report_failures
 from ekn.eval import (
     ApplyGroup,
     GitOpsManifestsResult,

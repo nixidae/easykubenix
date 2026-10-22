@@ -43,9 +43,27 @@ let
   # machinery is private to nanopynix' nix/python-set.nix. Passing `./ekn` as
   # a project root is what gets ekn's own dependencies resolved alongside
   # nanopynix' -- `overrideScope` here fails with `attribute 'kr8s' missing`.
+  #
+  # kappy, the apply engine `ekn` imports, joins the set the same way. Its
+  # root is the `kappy/` project directory of the source, because the set
+  # leaves out of the nixpkgs lookup every root whose directory name is a
+  # declared dependency, and the source itself is named `source`.
+  kappyRoot = sources.kappy + "/kappy";
   eknPythonSet = nanopynix.pythonSetWith {
-    projectRoots = [ ./ekn ];
+    projectRoots = [
+      ./ekn
+      kappyRoot
+    ];
     overlay = pySelf: _pyPrev: {
+      kappy = pySelf.callPackage (nanopynix.ps.mkProject {
+        projectRoot = kappyRoot;
+        inherit (nanopynix.pythonSet) python;
+        extra = rendered: {
+          meta = rendered.meta // {
+            platforms = lib.platforms.unix;
+          };
+        };
+      }) { };
       ekn = pySelf.callPackage (nanopynix.ps.mkProject {
         projectRoot = ./ekn;
         inherit (nanopynix.pythonSet) python;

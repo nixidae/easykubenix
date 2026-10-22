@@ -10,7 +10,7 @@ missing the controllers:
                    kind in one apply, with the CR read back afterwards --
                    apiextensions has to have served it
     hyphenated     that kind's singular carries a hyphen, which is the
-                   shape `ekn.apply.discover` exists for
+                   shape `kappy.apply.discover` exists for
     workload       the Deployment reaches Ready, so a kubelet answered
     idempotent     a second apply of the same generation changes nothing
     fast mode      --assume-unchanged skips what nothing has written, and
@@ -394,7 +394,7 @@ async def check_prune(cp: Machine, settings: dict[str, Any]) -> None:
 
     The WidgetPart is the half worth having.  Pruning lists a kind back
     through the class the apply built for it, and a custom kind only gets a
-    class from `ekn.apply.discover`; the builtin ConfigMap would pass with
+    class from `kappy.apply.discover`; the builtin ConfigMap would pass with
     that path broken.
     """
     namespace = settings["namespace"]

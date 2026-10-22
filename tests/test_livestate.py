@@ -12,9 +12,10 @@ import pytest
 
 # The same API server double the apply suite uses, so one description of a
 # cluster serves the sweep, the apply and the prune.
-from test_apply import FakeApi
+from kappy.testing import FakeApi
 
 from ekn.livestate import (
+    ACCEPT_METADATA,
     HASH_ANNOTATION,
     ForeignOwner,
     LiveObject,
@@ -26,7 +27,7 @@ from ekn.livestate import (
 )
 
 if TYPE_CHECKING:
-    from ekn.apply import Manifest
+    from kappy.apply import Manifest
 
 ENV = "nixlab2"
 
@@ -212,9 +213,20 @@ KINDS = [("VerticalPodAutoscaler", "autoscaling.k8s.io/v1")]
 
 
 class TestTheSweep:
-    """One metadata LIST per kind. The request's shape is asserted by the API
-    server double itself -- metadata-only and `resourceVersion=0` are the two
-    measurements this sweep exists for, so a change to either fails there."""
+    """One metadata LIST per kind."""
+
+    async def test_every_list_is_metadata_only_and_served_from_the_cache(self) -> None:
+        """Whole objects are 18 times the bytes, and a LIST without
+        `resourceVersion=0` is a quorum read against etcd per kind. These are
+        the two measurements the sweep exists for."""
+        api = FakeApi(resources=[VPA], listed=[("default", "VerticalPodAutoscaler", "vpa")])
+
+        await sweep(api, KINDS)
+
+        assert api.list_requests
+        for params, headers in api.list_requests:
+            assert headers.get("Accept") == ACCEPT_METADATA
+            assert params.get("resourceVersion") == "0"
 
     async def test_it_reads_what_the_three_consumers_need(self) -> None:
         api = FakeApi(resources=[VPA], listed=[("default", "VerticalPodAutoscaler", "vpa")])

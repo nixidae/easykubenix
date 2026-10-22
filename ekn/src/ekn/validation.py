@@ -19,8 +19,7 @@ if TYPE_CHECKING:
     from types import TracebackType
 
     from huggorm.jsonprimop import JsonValue
-
-    from ekn.apply import Manifest
+    from kappy.apply import Manifest
 
 _log = structlog.get_logger()
 

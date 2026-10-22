@@ -56,18 +56,18 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import structlog
+from kappy.converge import object_key
 from kr8s.asyncio.objects import Namespace
 
 from . import livestate
-from .converge import object_key
 from .livestate import canonical_json, desired_hash
 
 if TYPE_CHECKING:
     from collections.abc import Collection, Mapping
 
+    from kappy.apply import Manifest
     from kr8s.asyncio import Api
 
-    from .apply import Manifest
     from .livestate import LiveObject
 
 _log = structlog.get_logger()

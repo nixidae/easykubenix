@@ -23,17 +23,17 @@ import pytest
 # The double an apply test needs: discovery, PATCH, a listing for the prune
 # and a metadata sweep. Imported rather than copied so both suites describe
 # one API server.
-from test_apply import FakeApi
+from kappy.apply import apply_and_prune
+from kappy.directapply import converge_direct
+from kappy.testing import FakeApi
 
-from ekn.apply import apply_and_prune
-from ekn.directapply import converge_direct
 from ekn.fastcache import FORMAT_VERSION, ApplyCache, Entry, cache_root, cluster_id, digest, open_cache
 from ekn.livestate import HASH_ANNOTATION, LiveObject, canonical_json
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from ekn.apply import Manifest
+    from kappy.apply import Manifest
 
 #: What the fake API server answers with for a freshly applied object, and
 #: what a test therefore has to record to be allowed to skip it.

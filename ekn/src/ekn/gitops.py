@@ -19,7 +19,8 @@ if TYPE_CHECKING:
     # Type-only for a reason that outlives the annotation: ekn.eval imports
     # `load_raw_manifest` from this module at the top level, so a real import
     # of `ekn.eval` here would be a circular one.
-    from ekn.apply import Manifest
+    from kappy.apply import Manifest
+
     from ekn.eval import GitOpsManifestsResult, GitOpsTargetEntry
 
 

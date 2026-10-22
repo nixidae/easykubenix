@@ -242,14 +242,14 @@ class TestTheEngineIsInTheApplySet:
         """`prune_generation` keys objects `(namespace or "none", kind,
         name)`. A `protect` entry in any other shape silently protects
         nothing."""
-        from ekn.apply import _object_key
+        from kappy.apply import api_object_key
 
         class _Obj:
             namespace = "argocd"
             kind = "StatefulSet"
             name = CONTROLLER.name
 
-        assert _object_key(_Obj()) in object_keys([CONTROLLER])  # type: ignore[arg-type]
+        assert api_object_key(_Obj()) in object_keys([CONTROLLER])  # type: ignore[arg-type]
 
 
 def test_the_reminder_names_every_workload_and_its_count() -> None:

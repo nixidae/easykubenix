@@ -723,7 +723,7 @@ class TestAWholeInstanceConvergingApply:
         async def _converge_direct(objects: Any, **kwargs: Any) -> Any:
             seen["objects"] = objects
             seen["field_manager"] = kwargs["field_manager"]
-            from ekn.converge import ConvergeReport
+            from kappy.converge import ConvergeReport
 
             return ConvergeReport(applied=len(objects), skipped=0, failures=[]), {}
 

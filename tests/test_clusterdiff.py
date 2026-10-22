@@ -57,7 +57,7 @@ class FakeApi:
         yield _FakeResponse(result)
 
     # An API server that serves nothing but the built-in core kinds. That is
-    # what `ekn.apply.discover` reads, and a kind absent from it is exactly the
+    # what `kappy.apply.discover` reads, and a kind absent from it is exactly the
     # case this file is about: a CRD nobody has applied to the cluster yet.
     # `discover` then raises ValueError, which `cluster_diff` reports.
     async def async_api_resources(self) -> list[dict[str, Any]]:

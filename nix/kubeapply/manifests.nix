@@ -16,11 +16,11 @@
 #           three above only by its `ekn.dev/deployment-unit` label
 #
 # `WidgetPart` is deliberate. Its singular carries a hyphen, so it is the
-# multus shape that `ekn.apply.discover` exists for: kr8s' own
+# multus shape that `kappy.apply.discover` exists for: kr8s' own
 # `async_lookup_kind` lowercases the Kind and matches that against the
 # plural, the Kind, the singular and the short names, and
 # `widgetpart` is none of `widget-parts`, `WidgetPart` or `widget-part`.
-# tests/test_apply.py describes that against a double. This describes it
+# kappy/tests/test_apply.py describes that against a double. This describes it
 # against apiextensions.
 {
   workloadImage,

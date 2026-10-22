@@ -34,15 +34,13 @@ import copy
 from typing import TYPE_CHECKING, Any
 
 import structlog
-
-from .apply import build_object
+from kappy.apply import build_object
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping, Sequence
 
+    from kappy.apply import Manifest
     from kr8s.asyncio import Api
-
-    from .apply import Manifest
 
 log = structlog.get_logger(__name__)
 

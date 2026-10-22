@@ -31,6 +31,8 @@ dependencies = [
   # all, and resolved the shell through `$SHELL`.
   "argcomplete",
   "kr8s",
+  # The apply engine: SSA, prune and converge (nixidae/nixidae#1020).
+  "kappy",
   # `ekn schemacheck`: jsonschema-rs validates, httpx fetches yannh's schemas.
   # easykubenix/pkgs overlays jsonschema-rs to a newer release than nixpkgs.
   "jsonschema-rs",
