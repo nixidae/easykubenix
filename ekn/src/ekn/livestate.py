@@ -31,7 +31,9 @@ from typing import TYPE_CHECKING, Any
 
 import kr8s
 import structlog
-from kappy.apply import DEFAULT_ENVIRONMENT_LABEL, DEFAULT_UNIT_LABEL, KindNotServedError, build_object
+from kappy.apply import KindNotServedError, build_object
+
+from ekn.engine import ENVIRONMENT_LABEL, UNIT_LABEL
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
@@ -170,8 +172,8 @@ def _live_object(kind: str, item: Mapping[str, Any]) -> LiveObject:
             string(metadata, "name") or "?",
         ),
         manifest_hash=string(annotations, HASH_ANNOTATION),
-        environment=string(labels, DEFAULT_ENVIRONMENT_LABEL),
-        unit=string(labels, DEFAULT_UNIT_LABEL),
+        environment=string(labels, ENVIRONMENT_LABEL),
+        unit=string(labels, UNIT_LABEL),
         managers=_managers(metadata),
         resource_version=string(metadata, "resourceVersion"),
     )
@@ -345,7 +347,7 @@ def foreign_owners(
 
     **`engine_managers` must never gate a delete.** It is a "do not report
     this as surprising" list, and the two questions look similar enough to
-    merge by accident. `apply.DEFAULT_DELIVERY_MANAGERS` is the one that
+    merge by accident. `engine.DELIVERY_MANAGERS` is the one that
     decides what a prune may delete, and it is deliberately a different set:
     the endpoints controller *is* `kube-controller-manager`, so a prune that
     trusted this list would delete every Endpoints object in scope --

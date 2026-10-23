@@ -16,10 +16,10 @@ import anyio
 import structlog
 from anyio import Path
 from huggorm.errors import NixError
-from kappy.apply import DEFAULT_FIELD_MANAGER, DEFAULT_UNIT_LABEL
 from pydantic import BaseModel, Field, StringConstraints
 
 from ekn import nix
+from ekn.engine import FIELD_MANAGER, UNIT_LABEL
 from ekn.fod import (
     derivation_name_from_path,
     extract_fod_hash_mismatch,
@@ -919,7 +919,7 @@ def _raw_manifest_in_unit(path: str, unit: str | None) -> dict[str, Any]:
     metadata = dict(metadata) if isinstance(metadata, dict) else {}
     labels = metadata.get("labels")
     labels = dict(labels) if isinstance(labels, dict) else {}
-    labels.setdefault(DEFAULT_UNIT_LABEL, unit)
+    labels.setdefault(UNIT_LABEL, unit)
     metadata["labels"] = labels
     return {**manifest, "metadata": metadata}
 
@@ -957,7 +957,7 @@ async def _instance_field_manager(deployment: Any) -> str:
     a consumer.
     """
     if not await deployment.has_attr("fieldManager"):
-        return DEFAULT_FIELD_MANAGER
+        return FIELD_MANAGER
     value = await deployment.attr("fieldManager").to_python()
     if not isinstance(value, str) or not value:
         raise ValueError("deployment.fieldManager did not evaluate to a non-empty string")

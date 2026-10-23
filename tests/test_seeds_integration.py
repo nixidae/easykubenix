@@ -31,9 +31,10 @@ import kr8s
 import kr8s.asyncio
 import pytest
 from anyio import Path as AnyioPath
-from kappy.apply import apply_and_prune, build_object
+from kappy.apply import build_object
 
 from ekn import seeds
+from ekn.engine import apply_and_prune
 from ekn.eval import evaluate_validation_file
 from ekn.validation import EphemeralControlPlane
 

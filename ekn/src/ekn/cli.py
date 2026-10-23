@@ -21,20 +21,21 @@ import structlog
 from anyio import Path
 from huggorm.errors import NixError
 from huggorm.jsonprimop import JsonValue
-from kappy.apply import (
-    DEFAULT_DELIVERY_MANAGERS,
-    DEFAULT_ENVIRONMENT_LABEL,
-    DEFAULT_FIELD_MANAGER,
-    apply_and_prune,
-    prune_generation,
-)
 from kappy.converge import DEFAULT_CONCURRENCY, DEFAULT_SETTLE_SECONDS
-from kappy.directapply import converge_direct, report_failures
+from kappy.directapply import report_failures
 from pydantic import TypeAdapter, ValidationError
 
 from ekn import clusterfence, enginepause, fastcache, livestate, seeds, storecheck
 from ekn._cli import Command, build_parser, complete, dispatch, opt, pos
 from ekn.clusterdiff import cluster_diff
+from ekn.engine import (
+    DELIVERY_MANAGERS,
+    ENVIRONMENT_LABEL,
+    FIELD_MANAGER,
+    apply_and_prune,
+    converge_direct,
+    prune_generation,
+)
 from ekn.eval import (
     ApplyGroup,
     GitOpsManifestsResult,
@@ -1253,7 +1254,7 @@ async def _converge_group(  # noqa: PLR0913 -- the same state `apply_and_prune` 
             declared_units=cfg.declared_units,
             prune_kinds=cfg.api_mappings,
             protect=protect,
-            delivery_managers={*DEFAULT_DELIVERY_MANAGERS, group.field_manager},
+            delivery_managers={*DELIVERY_MANAGERS, group.field_manager},
         )
 
 
@@ -1486,7 +1487,7 @@ async def _open_apply_cache(  # noqa: PLR0913 -- one cache, and each argument is
         # Everything `ekn` applies carries it, so an object without it is not
         # one this cache has an entry for. It narrows the sweep to this
         # environment on a cluster that holds several.
-        selector=f"{DEFAULT_ENVIRONMENT_LABEL}={environment}",
+        selector=f"{ENVIRONMENT_LABEL}={environment}",
     )
     if not cache.primed():
         _log.info(
@@ -2225,7 +2226,7 @@ class Reclaim(FencedCommand):
         help="Reclaim only this GitOps target's objects (kubernetes.deploymentUnits). Omit for the full kubernetes.generated set.",
     )
     field_manager_from: list[str] = opt(
-        help=f"Manager to take ownership from, repeatable. Empty means {DEFAULT_FIELD_MANAGER!r}, which is what a whole-instance apply wrote before deployment.fieldManager existed.",
+        help=f"Manager to take ownership from, repeatable. Empty means {FIELD_MANAGER!r}, which is what a whole-instance apply wrote before deployment.fieldManager existed.",
     )
     dry_run: bool = opt(
         False,
@@ -2244,7 +2245,7 @@ class Reclaim(FencedCommand):
         # has to end up on. `field_manager` is the last group's -- the named
         # target's, or the instance's for a whole-instance run.
         new = cfg.field_manager
-        old = self.field_manager_from or [DEFAULT_FIELD_MANAGER]
+        old = self.field_manager_from or [FIELD_MANAGER]
         if new in set(old):
             raise SystemExit(f"refusing to reclaim {new!r} onto itself; --field-manager-from names the *old* manager")
         api = await kr8s.asyncio.api()

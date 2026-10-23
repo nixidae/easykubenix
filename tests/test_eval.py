@@ -7,9 +7,10 @@ from typing import Any, cast
 import anyio
 import pytest
 from huggorm.errors import NixError
-from kappy.apply import DEFAULT_BARRIER_PRIORITY, DEFAULT_FIELD_MANAGER
+from kappy.apply import DEFAULT_BARRIER_PRIORITY
 
 from ekn.attrpath import EvaluationTargetError
+from ekn.engine import FIELD_MANAGER
 from ekn.eval import (
     evaluate_file,
     evaluate_gitops_manifests,
@@ -1146,7 +1147,7 @@ class TestGitOpsTargetSubmoduleEndToEnd:
         cfg = await evaluate_kubeapply_config(self._probe(tmp_path), None, None, None, None)
 
         assert [group.unit for group in cfg.groups] == [None]
-        assert cfg.groups[0].field_manager == DEFAULT_FIELD_MANAGER
+        assert cfg.groups[0].field_manager == FIELD_MANAGER
 
     async def test_field_manager_defaults_without_a_target(self, tmp_path: Path) -> None:
         # No `--target`: the objects come from `kubernetes.generated`, which
@@ -1165,7 +1166,7 @@ class TestGitOpsTargetSubmoduleEndToEnd:
 
         cfg = await evaluate_kubeapply_config(probe, None, None, None, None)
 
-        assert cfg.field_manager == DEFAULT_FIELD_MANAGER
+        assert cfg.field_manager == FIELD_MANAGER
 
 
 class TestAssertionsAndWarnings:
