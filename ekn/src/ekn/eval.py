@@ -675,8 +675,11 @@ async def evaluate_generated_with_spec(
     attr_path: str | None,
     *,
     with_spec: bool,
+    target: str | None = None,
 ) -> tuple[JsonValue, str | None]:
-    """Resolve a file or flake target down to `kubernetes.generated`.
+    """Resolve a file or flake target down to `kubernetes.generated`, or with
+    `target` to that deployment unit's objects alone: no dependency closure,
+    and no raw files, the same as the whole set.
 
     Unlike `evaluate_file`/`evaluate_flake`, this never to_python's the whole
     module `config` -- easykubenix options without a default (e.g. unset
@@ -696,7 +699,11 @@ async def evaluate_generated_with_spec(
             proxy = proxy.attr("config")
 
         t_before_force = time.monotonic()
-        result = await proxy.attr("kubernetes").attr("generated").to_python()
+        if target:
+            units = await _unit_entries(proxy.attr("kubernetes").attr("deploymentUnits"), [target])
+            result, _, _, _ = _unpack_gitops_target(units, target)
+        else:
+            result = await proxy.attr("kubernetes").attr("generated").to_python()
         t_after_force = time.monotonic()
         _log_timing("to_python(kubernetes.generated)", t_after_force - t_before_force)
         # In this session: a second one costs ~4.6s of evaluator start-up on
@@ -936,26 +943,27 @@ def _load_raw_manifests(paths: list[tuple[str, str | None]]) -> list[dict[str, A
     return [_raw_manifest_in_unit(path, unit) for path, unit in paths if isinstance(path, str)]
 
 
-async def _target_units(units: nix.Value, target: str) -> dict[str, JsonValue]:
-    """The `kubernetes.deploymentUnits` entries a `--target` apply reads: the
-    target and its dependency closure, each `to_python`'d on its own.
+async def _unit_entries(units: nix.Value, names: list[str]) -> dict[str, JsonValue]:
+    """These `kubernetes.deploymentUnits` entries, each `to_python`'d on its own.
 
     Not the whole attrset. That carries every unit's objects, and on nixlab3
     serialising it cost 38s against 20s for one unit's entry.
     """
     declared = await units.attr_names()
-
-    async def entry(name: str) -> JsonValue:
+    selected: dict[str, JsonValue] = {}
+    for name in names:
         if name not in declared:
             # Raises the "unknown gitops target" error, naming the declared set.
             _unpack_gitops_target(dict.fromkeys(declared), name)
-        return await units.attr(name).to_python()
-
-    selected = {target: await entry(target)}
-    _, _, _, dependencies = _unpack_gitops_target(selected, target)
-    for name in dependencies:
-        selected[name] = await entry(name)
+        selected[name] = await units.attr(name).to_python()
     return selected
+
+
+async def _target_units(units: nix.Value, target: str) -> dict[str, JsonValue]:
+    """The entries a `--target` apply reads: the target and its dependency closure."""
+    selected = await _unit_entries(units, [target])
+    _, _, _, dependencies = _unpack_gitops_target(selected, target)
+    return {**await _unit_entries(units, dependencies), **selected}
 
 
 def _unit_group(units: JsonValue, name: str) -> dict[str, Any]:

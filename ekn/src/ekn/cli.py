@@ -286,15 +286,24 @@ class Render(AttrCommand):
         "the same check as validation.schemaCheck. A violation writes nothing and exits 1.",
     )
 
+    target: str | None = opt(
+        None,
+        help="Render only this deployment unit's objects (kubernetes.deploymentUnits), without the units "
+        "it depends on. Omit for the full kubernetes.generated set.",
+    )
+
     async def run(self) -> None:
         uri, customer = _parse_flake(self.flake) if self.flake is not None else (None, None)
         try:
             with package_placeholder_evaluation(enabled=self.package_placeholders):
                 manifests, spec_dir = await evaluate_generated_with_spec(
-                    self.file, uri, customer, self.attr, with_spec=self.validate
+                    self.file, uri, customer, self.attr, with_spec=self.validate, target=self.target
                 )
         except NixError as exc:
             _report_nix_error(exc)
+        except ValueError as exc:
+            _log.error(str(exc))
+            raise SystemExit(1) from exc
         if not isinstance(manifests, list):
             _log.error("expected a list result, got %s", type(manifests).__name__)
             raise SystemExit(1)

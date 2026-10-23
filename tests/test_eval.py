@@ -13,6 +13,7 @@ from kappy.apply import DEFAULT_BARRIER_PRIORITY
 from ekn.engine import FIELD_MANAGER
 from ekn.eval import (
     evaluate_file,
+    evaluate_generated_with_spec,
     evaluate_gitops_manifests,
     evaluate_kubeapply_config,
     realise_attr,
@@ -1216,6 +1217,14 @@ class TestGitOpsTargetSubmoduleEndToEnd:
 
         # `field_manager` still answers for the unit the user named.
         assert cfg.field_manager == "argocd-controller"
+
+    async def test_a_target_render_holds_the_unit_alone(self, tmp_path: Path) -> None:
+        # Not its dependencies: render is for reading one unit.
+        objects, _ = await evaluate_generated_with_spec(
+            self._dependency_probe(tmp_path), None, None, None, with_spec=False, target="bootstrap"
+        )
+        assert isinstance(objects, list)
+        assert [obj["metadata"]["name"] for obj in objects] == ["root"]
 
     async def test_an_unknown_target_names_the_declared_units(self, tmp_path: Path) -> None:
         with pytest.raises(ValueError, match=r"unknown gitops target 'nope'; declared targets: bootstrap, secrets"):
