@@ -948,7 +948,7 @@ class TestTheInstanceFieldManager:
         module system rather than asserted twice in Python."""
         probe = self._probe(tmp_path, "deployment.units.routed = { };")
 
-        cfg = await evaluate_kubeapply_config(probe, None, None, None, None)
+        cfg = await evaluate_kubeapply_config(probe, None, None, None, [])
 
         assert [group.field_manager for group in cfg.groups] == ["ekn"]
 
@@ -958,7 +958,7 @@ class TestTheInstanceFieldManager:
             'deployment.fieldManager = "argocd-controller"; deployment.units.routed = { };',
         )
 
-        cfg = await evaluate_kubeapply_config(probe, None, None, None, None)
+        cfg = await evaluate_kubeapply_config(probe, None, None, None, [])
 
         assert [group.field_manager for group in cfg.groups] == ["argocd-controller"]
 
@@ -971,7 +971,7 @@ class TestTheInstanceFieldManager:
             'deployment.fieldManager = "argocd-controller"; deployment.units.routed = { };',
         )
 
-        cfg = await evaluate_kubeapply_config(probe, None, None, None, None)
+        cfg = await evaluate_kubeapply_config(probe, None, None, None, [])
 
         assert cfg.unit_field_managers["routed"] == "argocd-controller"
 
@@ -983,7 +983,7 @@ class TestTheInstanceFieldManager:
             'deployment.fieldManager = "argocd-controller"; deployment.units.routed.fieldManager = "flux";',
         )
 
-        cfg = await evaluate_kubeapply_config(probe, None, None, None, None)
+        cfg = await evaluate_kubeapply_config(probe, None, None, None, [])
 
         assert cfg.unit_field_managers["routed"] == "flux"
 
@@ -1050,7 +1050,7 @@ class TestGitOpsTargetSubmoduleEndToEnd:
         assert "fieldManager" not in manifest
 
     async def test_kubeapply_target_applies_submodule_objects(self, tmp_path: Path) -> None:
-        cfg = await evaluate_kubeapply_config(self._probe(tmp_path), None, None, None, "bootstrap")
+        cfg = await evaluate_kubeapply_config(self._probe(tmp_path), None, None, None, ["bootstrap"])
 
         assert [obj["metadata"]["name"] for obj in cfg.objects] == ["root", "raw"]
         # The instance's environment, shared with a whole-instance apply. The
@@ -1058,7 +1058,7 @@ class TestGitOpsTargetSubmoduleEndToEnd:
         assert cfg.environment == "easykubenix"
         # Applied as the controller that takes over, so SSA hands the fields
         # across instead of leaving `ekn` owning them permanently.
-        assert cfg.field_manager == "argocd-controller"
+        assert cfg.groups[-1].field_manager == "argocd-controller"
         # Both labels reach the CLI: the one this unit declares, and the unit
         # label every unit declares by default. `ekn kubeapply --target` and
         # `ekn commit` read the same `deploymentUnits` objects, so what the
@@ -1096,7 +1096,7 @@ class TestGitOpsTargetSubmoduleEndToEnd:
             }}
         """)
 
-        cfg = await evaluate_kubeapply_config(probe, None, None, None, None)
+        cfg = await evaluate_kubeapply_config(probe, None, None, None, [])
 
         assert cfg.hand_applied_units == ["bootstrap"]
         assert cfg.declared_units == ["bootstrap", "routed"]
@@ -1112,7 +1112,7 @@ class TestGitOpsTargetSubmoduleEndToEnd:
         `notin` matches an object carrying no unit label at all. For a
         bootstrap unit the raw file is typically ArgoCD's own `install.yaml`.
         """
-        cfg = await evaluate_kubeapply_config(self._probe(tmp_path), None, None, None, "bootstrap")
+        cfg = await evaluate_kubeapply_config(self._probe(tmp_path), None, None, None, ["bootstrap"])
 
         raw = next(obj for obj in cfg.objects if obj["metadata"]["name"] == "raw")
         assert raw["metadata"]["labels"] == {"ekn.dev/deployment-unit": "bootstrap"}
@@ -1143,7 +1143,7 @@ class TestGitOpsTargetSubmoduleEndToEnd:
             }}
         """)
 
-        cfg = await evaluate_kubeapply_config(probe, None, None, None, None)
+        cfg = await evaluate_kubeapply_config(probe, None, None, None, [])
 
         raw = next(obj for obj in cfg.objects if obj["metadata"]["name"] == "raw")
         assert raw["metadata"]["labels"] == {"ekn.dev/deployment-unit": "bootstrap"}
@@ -1162,7 +1162,7 @@ class TestGitOpsTargetSubmoduleEndToEnd:
             }}
         """)
 
-        cfg = await evaluate_kubeapply_config(probe, None, None, None, None)
+        cfg = await evaluate_kubeapply_config(probe, None, None, None, [])
 
         raw = next(obj for obj in cfg.objects if obj["metadata"]["name"] == "raw")
         assert "labels" not in raw["metadata"]
@@ -1202,7 +1202,7 @@ class TestGitOpsTargetSubmoduleEndToEnd:
         managers on the same fields the moment anyone runs
         `ekn kubeapply --target secrets`.
         """
-        cfg = await evaluate_kubeapply_config(self._dependency_probe(tmp_path), None, None, None, "bootstrap")
+        cfg = await evaluate_kubeapply_config(self._dependency_probe(tmp_path), None, None, None, ["bootstrap"])
 
         # The dependency first, the named unit last.
         assert [group.unit for group in cfg.groups] == ["secrets", "bootstrap"]
@@ -1215,38 +1215,35 @@ class TestGitOpsTargetSubmoduleEndToEnd:
         assert by_name["repo"]["metadata"]["labels"]["ekn.dev/deployment-unit"] == "secrets"
         assert by_name["root"]["metadata"]["labels"]["ekn.dev/deployment-unit"] == "bootstrap"
 
-        # `field_manager` still answers for the unit the user named.
-        assert cfg.field_manager == "argocd-controller"
+        # The unit the user named is the last group.
+        assert cfg.groups[-1].field_manager == "argocd-controller"
+        # Only the named unit is pruned; the dependency is applied.
+        assert [group.prunable for group in cfg.groups] == [False, True]
 
-    @pytest.mark.parametrize("targets", ["bootstrap,secrets", "secrets,bootstrap", "bootstrap, secrets"])
+    @pytest.mark.parametrize("targets", [["bootstrap", "secrets"], ["secrets", "bootstrap"]])
     async def test_several_targets_apply_each_unit_once_after_its_dependencies(
-        self, tmp_path: Path, targets: str
+        self, tmp_path: Path, targets: list[str]
     ) -> None:
         cfg = await evaluate_kubeapply_config(self._dependency_probe(tmp_path), None, None, None, targets)
 
         assert [group.unit for group in cfg.groups] == ["secrets", "bootstrap"]
+        # Both were named, so both are pruned.
+        assert [group.prunable for group in cfg.groups] == [True, True]
 
-    async def test_a_render_of_several_targets_keeps_the_order_given(self, tmp_path: Path) -> None:
-        objects, _ = await evaluate_generated_with_spec(
-            self._dependency_probe(tmp_path), None, None, None, with_spec=False, target="bootstrap,secrets"
-        )
-        assert isinstance(objects, list)
-        assert [obj["metadata"]["name"] for obj in objects] == ["root", "repo"]
+    async def test_a_target_render_is_what_the_apply_sends(self, tmp_path: Path) -> None:
+        probe = self._dependency_probe(tmp_path)
+        objects, _ = await evaluate_generated_with_spec(probe, None, None, None, with_spec=False, targets=["bootstrap"])
+        cfg = await evaluate_kubeapply_config(probe, None, None, None, ["bootstrap"])
 
-    async def test_a_target_render_holds_the_unit_alone(self, tmp_path: Path) -> None:
-        # Not its dependencies: render is for reading one unit.
-        objects, _ = await evaluate_generated_with_spec(
-            self._dependency_probe(tmp_path), None, None, None, with_spec=False, target="bootstrap"
-        )
-        assert isinstance(objects, list)
-        assert [obj["metadata"]["name"] for obj in objects] == ["root"]
+        assert objects == cfg.objects
+        assert [obj["metadata"]["name"] for obj in cfg.objects] == ["repo", "root"]
 
     async def test_an_unknown_target_names_the_declared_units(self, tmp_path: Path) -> None:
         with pytest.raises(ValueError, match=r"unknown gitops target 'nope'; declared targets: bootstrap, secrets"):
-            await evaluate_kubeapply_config(self._dependency_probe(tmp_path), None, None, None, "nope")
+            await evaluate_kubeapply_config(self._dependency_probe(tmp_path), None, None, None, ["nope"])
 
     async def test_a_whole_instance_apply_is_one_group(self, tmp_path: Path) -> None:
-        cfg = await evaluate_kubeapply_config(self._probe(tmp_path), None, None, None, None)
+        cfg = await evaluate_kubeapply_config(self._probe(tmp_path), None, None, None, [])
 
         assert [group.unit for group in cfg.groups] == [None]
         assert cfg.groups[0].field_manager == FIELD_MANAGER
@@ -1266,9 +1263,9 @@ class TestGitOpsTargetSubmoduleEndToEnd:
             }}
         """)
 
-        cfg = await evaluate_kubeapply_config(probe, None, None, None, None)
+        cfg = await evaluate_kubeapply_config(probe, None, None, None, [])
 
-        assert cfg.field_manager == FIELD_MANAGER
+        assert cfg.groups[-1].field_manager == FIELD_MANAGER
 
 
 class TestAssertionsAndWarnings:

@@ -55,6 +55,7 @@ async def test_render_validates_crds_before_filtering_output(
     command.validate = validate
     command.package_placeholders = False
     command.skip_crds = skip_crds
+    command.target = []
     await command.run()
     output = capsys.readouterr().out
     assert "kind: Probe" in output

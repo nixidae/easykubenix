@@ -10,7 +10,19 @@ from typing import Any, ClassVar
 
 import pytest
 
-from ekn.cli import Deploy, JsonToYaml, Validate, YamlToJson, _apply_groups, _push_ekn_cache
+from ekn.cli import (
+    ClusterDiff,
+    Deploy,
+    JsonToYaml,
+    KubeApply,
+    Reclaim,
+    Render,
+    Secrets,
+    Validate,
+    YamlToJson,
+    _apply_groups,
+    _push_ekn_cache,
+)
 from ekn.eval import (
     CacheConfigResult,
     KubeApplyConfigResult,
@@ -651,10 +663,10 @@ class TestAWholeInstancePruneNeedsItsExclusionSet:
     """
 
     @staticmethod
-    def _config(hand_applied: list[str] | None) -> KubeApplyConfigResult:
+    def _config(hand_applied: list[str] | None, unit: str | None = None) -> KubeApplyConfigResult:
         return KubeApplyConfigResult.model_validate(
             {
-                "groups": [{"unit": None, "field_manager": "ekn", "objects": []}],
+                "groups": [{"unit": unit, "field_manager": "ekn", "objects": []}],
                 "environment": "test",
                 "resource_priority": {},
                 "sops_age_identities": [],
@@ -665,19 +677,19 @@ class TestAWholeInstancePruneNeedsItsExclusionSet:
 
     async def test_an_unknown_exclusion_set_refuses_the_prune(self) -> None:
         with pytest.raises(SystemExit, match="handAppliedUnits"):
-            await _apply_groups(self._config(None), api=None, target=None, prune=True)  # type: ignore[arg-type]
+            await _apply_groups(self._config(None), api=None, prune=True)  # type: ignore[arg-type]
 
     async def test_no_hand_applied_units_is_not_the_same_as_unknown(self) -> None:
         """The empty list runs. A guard that refused it would make `--prune`
         useless for every configuration that declares no nested unit, which
         is most of them."""
-        await _apply_groups(self._config([]), api=None, target=None, prune=True)  # type: ignore[arg-type]
+        await _apply_groups(self._config([]), api=None, prune=True)  # type: ignore[arg-type]
 
     async def test_a_target_apply_is_unaffected(self) -> None:
         """A `--target` prune scopes by the unit's own label and never reads
         the exclusion set, so an old configuration can still use it -- which
         is what the refusal message offers as the way forward."""
-        await _apply_groups(self._config(None), api=None, target="bootstrap", prune=True)  # type: ignore[arg-type]
+        await _apply_groups(self._config(None, unit="bootstrap"), api=None, prune=True)  # type: ignore[arg-type]
 
 
 class TestAWholeInstanceConvergingApply:
@@ -736,7 +748,6 @@ class TestAWholeInstanceConvergingApply:
         await _apply_groups(
             self._config(),
             api=None,  # type: ignore[arg-type]
-            target=None,
             prune=False,
             converge=cli_module._ConvergeOptions(enabled=True),
         )
@@ -756,9 +767,25 @@ class TestAWholeInstanceConvergingApply:
 
         monkeypatch.setattr(cli_module, "apply_and_prune", _apply_and_prune)
 
-        await _apply_groups(self._config(), api=None, target=None, prune=False)  # type: ignore[arg-type]
+        await _apply_groups(self._config(), api=None, prune=False)  # type: ignore[arg-type]
 
         assert seen == {"barriers": True}
+
+    async def test_a_prune_reaches_the_whole_instance_group(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The group has no unit. A prune scope read off a list of named
+        targets drops it silently, and the apply then prunes nothing."""
+        import ekn.cli as cli_module
+
+        seen: dict[str, Any] = {}
+
+        async def _apply_and_prune(*_args: Any, **kwargs: Any) -> None:
+            seen["prune"] = kwargs["prune"]
+
+        monkeypatch.setattr(cli_module, "apply_and_prune", _apply_and_prune)
+
+        await _apply_groups(self._config(), api=None, prune=True)  # type: ignore[arg-type]
+
+        assert seen == {"prune": True}
 
 
 class TestTheEnginePauseHoldsObjectsBack:
@@ -810,7 +837,6 @@ class TestTheEnginePauseHoldsObjectsBack:
         await _apply_groups(
             self._config(),
             api=None,  # type: ignore[arg-type]
-            target=None,
             prune=False,
             held_by_engine_pause=held,
         )
@@ -830,7 +856,7 @@ class TestTheEnginePauseHoldsObjectsBack:
 
         monkeypatch.setattr(cli_module, "apply_and_prune", _apply_and_prune)
 
-        await _apply_groups(self._config(), api=None, target=None, prune=False)  # type: ignore[arg-type]
+        await _apply_groups(self._config(), api=None, prune=False)  # type: ignore[arg-type]
 
         assert len(seen["objects"]) == 2
 
@@ -1108,7 +1134,6 @@ class TestTheSweepUnderAssumeUnchanged:
         await _apply_groups(
             self._config(),
             api=None,  # type: ignore[arg-type]
-            target=None,
             prune=False,
             assume_unchanged=assume_unchanged,
         )
@@ -1135,3 +1160,14 @@ class TestTheSweepUnderAssumeUnchanged:
 
         assert "kinds" not in seen
         assert seen["store"].live is None
+
+
+class TestTargetsParseOnce:
+    """Every command that sends a slice reads `--target` the same way."""
+
+    @pytest.mark.parametrize("command", [KubeApply, Render, Secrets, ClusterDiff, Reclaim])
+    def test_repeated_and_comma_separated_names_flatten(self, command: type[Any]) -> None:
+        assert command(target=["a, b", "c", ""]).targets == ["a", "b", "c"]
+
+    def test_no_flag_is_no_targets(self) -> None:
+        assert KubeApply().targets == []

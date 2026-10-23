@@ -175,7 +175,7 @@ class TestTheCommand:
             file=None,
             flake=None,
             attr=None,
-            target=None,
+            target=[],
             field_manager_from=kwargs.get("field_manager_from", []),
             dry_run=kwargs.get("dry_run", True),
         )

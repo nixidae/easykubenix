@@ -255,7 +255,7 @@ class TestTheOptionReachesPython:
             f'ekn.preApplyCommand = pkgs.writeShellScript "seed-{nonce}" "exit 0";',
         )
 
-        cfg = await evaluate_kubeapply_config(f, None, None, None, None)
+        cfg = await evaluate_kubeapply_config(f, None, None, None, [])
 
         assert cfg.pre_apply_command is not None
         assert cfg.pre_apply_command.startswith("/nix/store/")
@@ -264,5 +264,5 @@ class TestTheOptionReachesPython:
         assert os.access(cfg.pre_apply_command, os.X_OK), "the program is on disk and executable"
 
     async def test_no_hook_is_the_default(self, tmp_path: pathlib.Path) -> None:
-        cfg = await evaluate_kubeapply_config(self._instance(tmp_path, ""), None, None, None, None)
+        cfg = await evaluate_kubeapply_config(self._instance(tmp_path, ""), None, None, None, [])
         assert cfg.pre_apply_command is None

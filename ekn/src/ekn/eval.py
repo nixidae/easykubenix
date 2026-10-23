@@ -35,7 +35,7 @@ from ekn.storecheck import STORE_DIR, store_paths_in_text
 # at runtime. `runtime-evaluated-base-classes` in ruff-strict.toml is what
 # keeps that distinction enforced if a field ever does use it.
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, Generator
+    from collections.abc import AsyncGenerator, Generator, Iterable, Sequence
 
     from huggorm import AsyncStore
     from huggorm.jsonprimop import JsonValue
@@ -192,6 +192,10 @@ class ApplyGroup(BaseModel):
     unit: str | None
     field_manager: str
     objects: list[dict[str, Any]]
+    #: Whether a `--prune` deletes in this group's scope: true for a unit the
+    #: caller named and for the whole-instance group, false for a dependency
+    #: pulled in. `ekn kubeapply --target <dependency> --prune` prunes that one.
+    prunable: bool = True
 
 
 class EngineWorkload(BaseModel):
@@ -246,14 +250,6 @@ class KubeApplyConfigResult(BaseModel):
     def objects(self) -> list[dict[str, Any]]:
         """Every object this apply sends, across all groups, in apply order."""
         return [obj for group in self.groups for obj in group.objects]
-
-    @property
-    def field_manager(self) -> str:
-        """The manager the *named* unit applies as -- the last group's.
-
-        A dependency keeps its own; see `ApplyGroup`.
-        """
-        return self.groups[-1].field_manager
 
 
 class _ValidationPackageInfo(BaseModel):
@@ -675,11 +671,10 @@ async def evaluate_generated_with_spec(
     attr_path: str | None,
     *,
     with_spec: bool,
-    target: str | None = None,
+    targets: Sequence[str] = (),
 ) -> tuple[JsonValue, str | None]:
     """Resolve a file or flake target down to `kubernetes.generated`, or with
-    `target` to that deployment unit's objects alone: no dependency closure,
-    and no raw files, the same as the whole set.
+    `targets` to exactly what `ekn kubeapply --target` would send.
 
     Unlike `evaluate_file`/`evaluate_flake`, this never to_python's the whole
     module `config` -- easykubenix options without a default (e.g. unset
@@ -699,14 +694,13 @@ async def evaluate_generated_with_spec(
             proxy = proxy.attr("config")
 
         t_before_force = time.monotonic()
-        if target:
-            names = split_targets(target)
-            units = await _unit_entries(proxy.attr("kubernetes").attr("deploymentUnits"), names)
-            result = [obj for name in names for obj in _unpack_gitops_target(units, name)[0]]
+        if targets:
+            groups = await _target_groups(proxy.attr("kubernetes").attr("deploymentUnits"), targets)
+            result = [obj for group in groups for obj in group["objects"]]
         else:
             result = await proxy.attr("kubernetes").attr("generated").to_python()
         t_after_force = time.monotonic()
-        _log_timing("to_python(kubernetes.generated)", t_after_force - t_before_force)
+        _log_timing("to_python(the selected objects)", t_after_force - t_before_force)
         # In this session: a second one costs ~4.6s of evaluator start-up on
         # nixlab3, against 0.4s for the whole schema check.
         spec = await proxy.attr("validation").attr("openapiSpec").realise_string() if with_spec else None
@@ -863,8 +857,7 @@ def _unpack_gitops_target(
     if not isinstance(gitops_targets, dict):
         raise TypeError("kubernetes.deploymentUnits did not evaluate to an object")
     if target not in gitops_targets:
-        declared = ", ".join(sorted(gitops_targets)) or "(none)"
-        raise ValueError(f"unknown gitops target {target!r}; declared targets: {declared}")
+        raise _unknown_unit(target, gitops_targets)
     resolved = gitops_targets[target]
     if not isinstance(resolved, dict):
         raise TypeError(f"gitops target {target!r} did not evaluate to an object")
@@ -944,39 +937,33 @@ def _load_raw_manifests(paths: list[tuple[str, str | None]]) -> list[dict[str, A
     return [_raw_manifest_in_unit(path, unit) for path, unit in paths if isinstance(path, str)]
 
 
-async def _unit_entries(units: nix.Value, names: list[str]) -> dict[str, JsonValue]:
-    """These `kubernetes.deploymentUnits` entries, each `to_python`'d on its own.
+def _unknown_unit(name: str, declared: Iterable[str]) -> ValueError:
+    return ValueError(f"unknown gitops target {name!r}; declared targets: {', '.join(sorted(declared)) or '(none)'}")
 
-    Not the whole attrset. That carries every unit's objects, and on nixlab3
-    serialising it cost 38s against 20s for one unit's entry.
+
+async def _target_groups(units: nix.Value, targets: Sequence[str]) -> list[dict[str, Any]]:
+    """The `ApplyGroup` fields a `--target` apply sends, in order: each
+    target's dependency closure, deepest first, then the target. A unit
+    appears once, where it first comes, and only a named one is prunable.
+
+    Each unit is `to_python`'d on its own, never the whole attrset: that
+    carries every unit's objects, and on nixlab3 cost 38s against 20s for one.
     """
     declared = await units.attr_names()
-    selected: dict[str, JsonValue] = {}
-    for name in names:
-        if name not in declared:
-            # Raises the "unknown gitops target" error, naming the declared set.
-            _unpack_gitops_target(dict.fromkeys(declared), name)
-        selected[name] = await units.attr(name).to_python()
-    return selected
-
-
-def split_targets(target: str | None) -> list[str]:
-    """`--target a,b` as unit names, in the order given."""
-    return [name.strip() for name in (target or "").split(",") if name.strip()]
-
-
-async def _target_units(units: nix.Value, targets: list[str]) -> dict[str, JsonValue]:
-    """The entries a `--target` apply reads, in apply order: each target's
-    dependency closure, deepest first, then the target. A unit appears once,
-    where it first comes."""
-    named = await _unit_entries(units, targets)
-    ordered: dict[str, JsonValue] = {}
+    order: list[str] = []
     for target in targets:
-        _, _, _, dependencies = _unpack_gitops_target(named, target)
-        for name in [*dependencies, target]:
-            if name not in ordered:
-                ordered[name] = named[name] if name in named else (await _unit_entries(units, [name]))[name]
-    return ordered
+        if target not in declared:
+            raise _unknown_unit(target, declared)
+        dependencies = await units.attr(target).attr("dependencies").to_python()
+        if not isinstance(dependencies, list):
+            raise TypeError(f"gitops target {target!r} dependencies must be a list")
+        for name in [*map(str, dependencies), target]:
+            if name not in declared:
+                raise _unknown_unit(name, declared)
+            if name not in order:
+                order.append(name)
+    entries = {name: await units.attr(name).to_python() for name in order}
+    return [{**_unit_group(entries, name), "prunable": name in targets} for name in order]
 
 
 def _unit_group(units: JsonValue, name: str) -> dict[str, Any]:
@@ -1012,18 +999,18 @@ async def evaluate_kubeapply_config(
     flake_uri: str | None,
     customer: str | None,
     attr_path: str | None,
-    target: str | None,
+    targets: Sequence[str],
 ) -> KubeApplyConfigResult:
     """Resolve the object list `ekn kubeapply` should apply, plus the
     `ekn.environment`/`ekn.resourcePriority` `apply_and_prune` needs
     and `kubernetes.sopsAgeIdentities` (SOPS age decrypt identities some
     consumer needs bootstrapped as a Secret -- see `ekn.sops.ensure_age_identities`).
 
-    `target` narrows to one `kubernetes.deploymentUnits` entry's objects,
-    `.ekn` routing metadata stripped, preceded by one group per unit that
-    entry depends on; omitted, to_python's the full `kubernetes.generated`
-    instead as a single group -- never both, so this only ever forces the one
-    field it actually needs.
+    `targets` narrows to those `kubernetes.deploymentUnits` entries' objects,
+    `.ekn` routing metadata stripped, each preceded by one group per unit it
+    depends on; empty, to_python's the full `kubernetes.generated` instead as
+    a single group -- never both, so this only ever forces the one field it
+    actually needs.
 
     `ekn.environment` does not follow that split: both scopes are the same
     environment. What separates them is the `ekn.dev/deployment-unit` label
@@ -1031,23 +1018,20 @@ async def evaluate_kubeapply_config(
     prune selector -- see `apply.prune_selector`.
     """
     async with _evaluator() as eval_:
-        with timed_stage("kubeapply: resolve the configuration"):
-            proxy = await _resolve_proxy(eval_, file, flake_uri, customer, attr_path)
-            if await proxy.has_attr("config"):
-                proxy = proxy.attr("config")
+        proxy = await _resolve_proxy(eval_, file, flake_uri, customer, attr_path)
+        if await proxy.has_attr("config"):
+            proxy = proxy.attr("config")
 
-            environment = await proxy.attr("ekn").attr("environment").to_python()
+        environment = await proxy.attr("ekn").attr("environment").to_python()
 
         deployment = proxy.attr("deployment")
         # Read before the groups, because the untargeted group needs it.
         instance_manager = await _instance_field_manager(deployment)
 
-        if target:
-            with timed_stage("kubeapply: to_python the target's units"):
-                units = await _target_units(proxy.attr("kubernetes").attr("deploymentUnits"), split_targets(target))
-            # The dependency closure first, deepest first, then the named
-            # unit. Each keeps its own `fieldManager`; see `ApplyGroup`.
-            groups = [_unit_group(units, name) for name in units]
+        if targets:
+            # Each group keeps its own `fieldManager`; see `ApplyGroup`.
+            with timed_stage("kubeapply: to_python the targets' units"):
+                groups = await _target_groups(proxy.attr("kubernetes").attr("deploymentUnits"), targets)
         else:
             generated = await proxy.attr("kubernetes").attr("generated").to_python()
             if not isinstance(generated, list):

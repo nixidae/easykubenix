@@ -56,7 +56,6 @@ from ekn.eval import (
     push_closure_to_store,
     python_profile,
     realise_attr,
-    split_targets,
     ssh_failure_hint,
     timed_stage,
     verbose_session,
@@ -205,6 +204,23 @@ class AttrCommand(NixCommand):
     attr: str | None = opt(None, short="A", help="Dot-separated attribute path within the evaluation result.")
 
 
+class UnitTargets:
+    """`--target`, for every command that sends a slice of the instance.
+
+    One declaration, so the flag selects the same objects everywhere:
+    `render --target X` prints what `kubeapply --target X` applies.
+    """
+
+    target: list[str] = opt(
+        help="Only these deployment units (kubernetes.deploymentUnits), each after the units it depends on. "
+        "Repeat the flag or separate names with commas. Omit for the full kubernetes.generated set.",
+    )
+
+    @property
+    def targets(self) -> list[str]:
+        return [name.strip() for value in self.target or [] for name in value.split(",") if name.strip()]
+
+
 class FencedCommand(AttrCommand):
     """An `AttrCommand` that reaches a real cluster, and checks which one.
 
@@ -269,7 +285,7 @@ class Eval(AttrCommand):
         sys.stdout.write("\n")
 
 
-class Render(AttrCommand):
+class Render(UnitTargets, AttrCommand):
     """Render Kubernetes manifests as YAML on stdout."""
 
     package_placeholders: bool = opt(
@@ -287,18 +303,12 @@ class Render(AttrCommand):
         "the same check as validation.schemaCheck. A violation writes nothing and exits 1.",
     )
 
-    target: str | None = opt(
-        None,
-        help="Render only these deployment units' objects (kubernetes.deploymentUnits), comma-separated, "
-        "without the units they depend on. Omit for the full kubernetes.generated set.",
-    )
-
     async def run(self) -> None:
         uri, customer = _parse_flake(self.flake) if self.flake is not None else (None, None)
         try:
             with package_placeholder_evaluation(enabled=self.package_placeholders):
                 manifests, spec_dir = await evaluate_generated_with_spec(
-                    self.file, uri, customer, self.attr, with_spec=self.validate, target=self.target
+                    self.file, uri, customer, self.attr, with_spec=self.validate, targets=self.targets
                 )
         except NixError as exc:
             _report_nix_error(exc)
@@ -1349,7 +1359,6 @@ async def _apply_groups(  # noqa: PLR0913 -- each argument is one decision `ekn 
     cfg: KubeApplyConfigResult,
     *,
     api: kr8s.asyncio.Api,
-    target: str | None,
     prune: bool,
     cluster: str | None = None,
     converge: _ConvergeOptions | None = None,
@@ -1368,7 +1377,8 @@ async def _apply_groups(  # noqa: PLR0913 -- each argument is one decision `ekn 
     Split out of `KubeApply.run` to keep that method under the complexity
     limit.
     """
-    if prune and target is None and cfg.hand_applied_units is None:
+    whole_instance = any(group.unit is None for group in cfg.groups)
+    if prune and whole_instance and cfg.hand_applied_units is None:
         raise SystemExit(
             "refusing a whole-instance --prune: this configuration does not offer "
             "deployment.handAppliedUnits, so the units that must not be pruned are unknown.\n"
@@ -1422,7 +1432,6 @@ async def _apply_groups(  # noqa: PLR0913 -- each argument is one decision `ekn 
             prepared,
             cfg=cfg,
             api=api,
-            target=target,
             prune=prune,
             converge=converge,
             held=held,
@@ -1565,7 +1574,6 @@ async def _apply_prepared(  # noqa: PLR0913 -- the state `_apply_groups` built, 
     *,
     cfg: KubeApplyConfigResult,
     api: kr8s.asyncio.Api,
-    target: str | None,
     prune: bool,
     converge: _ConvergeOptions | None,
     held: set[tuple[str, str, str]],
@@ -1592,7 +1600,7 @@ async def _apply_prepared(  # noqa: PLR0913 -- the state `_apply_groups` built, 
                 api=api,
                 cfg=cfg,
                 options=converge,
-                prune=prune and (target is None or group.unit in split_targets(target)),
+                prune=prune and group.prunable,
                 protect=protected,
                 unit_managers=unit_managers,
                 cache=cache,
@@ -1612,11 +1620,10 @@ async def _apply_prepared(  # noqa: PLR0913 -- the state `_apply_groups` built, 
             # only kinds this apply still touches, which is precisely the set
             # a removal empties.
             prune_kinds=cfg.api_mappings,
-            # Only the unit the user named. A dependency's objects are
-            # applied, not pruned: a `--prune` that deletes in a scope nobody
-            # asked about is a surprise, and `ekn kubeapply --target
-            # <dependency> --prune` is right there when you want it.
-            prune=prune and (target is None or group.unit in split_targets(target)),
+            # A dependency's objects are applied, not pruned: a `--prune`
+            # that deletes in a scope nobody asked about is a surprise. See
+            # `ApplyGroup.prunable`.
+            prune=prune and group.prunable,
             # A seed whose variable is unset is not ours to delete, and nor is
             # a workload this run has scaled to zero. See `SeedPlan.protected`
             # and `enginepause`.
@@ -1629,7 +1636,7 @@ async def _apply_prepared(  # noqa: PLR0913 -- the state `_apply_groups` built, 
 # one: it pushes `ekn.cacheTo` before it acts, and it reaches a real cluster.
 # `Command.__init_subclass__` walks `__mro__`, so options from both are
 # collected; both derive from `AttrCommand`, so the linearisation is ordinary.
-class KubeApply(CachePushCommand, FencedCommand):
+class KubeApply(UnitTargets, CachePushCommand, FencedCommand):
     """Apply Kubernetes objects directly against the current kubeconfig
     context: server-side apply in barrier order, with optional pruning.
 
@@ -1649,10 +1656,6 @@ class KubeApply(CachePushCommand, FencedCommand):
 
     cli_name = "kubeapply"
 
-    target: str | None = opt(
-        None,
-        help="Apply only these deployment units' objects (kubernetes.deploymentUnits), comma-separated, each after the units it depends on. Omit for the full kubernetes.generated set.",
-    )
     prune: bool = opt(
         False,
         help="Delete previously-applied objects no longer present in this apply. Scoped by label: ekn.dev/environment plus each named target's ekn.dev/deployment-unit with --target, otherwise ekn.dev/environment excluding the hand-applied units (deployment.handAppliedUnits). Never deletes an object owned by a controller.",
@@ -1805,7 +1808,7 @@ class KubeApply(CachePushCommand, FencedCommand):
 
         uri, customer = _parse_flake(self.flake) if self.flake is not None else (None, None)
         try:
-            cfg = await evaluate_kubeapply_config(self.file, uri, customer, self.attr, self.target)
+            cfg = await evaluate_kubeapply_config(self.file, uri, customer, self.attr, self.targets)
         except NixError as exc:
             _report_nix_error(exc)
         except ValidationError as exc:
@@ -1822,7 +1825,7 @@ class KubeApply(CachePushCommand, FencedCommand):
         # what the push depends on. Issue #5.
         await _run_pre_apply(
             cfg,
-            target=self.target,
+            target=",".join(self.targets) or None,
             cache_push=self.cache_push,
             cache_allow_failure=self.cache_allow_failure,
         )
@@ -1856,7 +1859,6 @@ class KubeApply(CachePushCommand, FencedCommand):
                 await _apply_groups(
                     cfg,
                     api=api,
-                    target=self.target,
                     prune=self.prune,
                     cluster=cluster,
                     held_by_engine_pause=held,
@@ -2101,7 +2103,7 @@ class Tofu(AttrCommand):
         self.print_help()
 
 
-class Secrets(FencedCommand):
+class Secrets(UnitTargets, FencedCommand):
     """List the bootstrap credentials this configuration expects.
 
     Read-only, and answers the question before a cluster exists: which
@@ -2115,15 +2117,10 @@ class Secrets(FencedCommand):
     the apply said a credential was expected.
     """
 
-    target: str | None = opt(
-        None,
-        help="Only these deployment units' objects, comma-separated. Omit for the full kubernetes.generated set.",
-    )
-
     async def run(self) -> None:
         uri, customer = _parse_flake(self.flake) if self.flake is not None else (None, None)
         try:
-            cfg = await evaluate_kubeapply_config(self.file, uri, customer, self.attr, self.target)
+            cfg = await evaluate_kubeapply_config(self.file, uri, customer, self.attr, self.targets)
         except NixError as exc:
             _report_nix_error(exc)
         except ValidationError as exc:
@@ -2156,7 +2153,7 @@ class Secrets(FencedCommand):
         print(seeds.table(await seeds.inspect(rows, api=api)))
 
 
-class ClusterDiff(FencedCommand):
+class ClusterDiff(UnitTargets, FencedCommand):
     """Diff Kubernetes objects against the live cluster.
 
     Unlike `ekn diff` (which compares against the previous GitOps commit),
@@ -2173,15 +2170,10 @@ class ClusterDiff(FencedCommand):
         False, help="Omit CustomResourceDefinitions from live lookups and server-side-apply dry runs."
     )
 
-    target: str | None = opt(
-        None,
-        help="Diff only these deployment units' objects (kubernetes.deploymentUnits), comma-separated. Omit for the full kubernetes.generated set.",
-    )
-
     async def run(self) -> None:
         uri, customer = _parse_flake(self.flake) if self.flake is not None else (None, None)
         try:
-            cfg = await evaluate_kubeapply_config(self.file, uri, customer, self.attr, self.target)
+            cfg = await evaluate_kubeapply_config(self.file, uri, customer, self.attr, self.targets)
         except NixError as exc:
             _report_nix_error(exc)
         except ValidationError as exc:
@@ -2203,7 +2195,7 @@ class ClusterDiff(FencedCommand):
             _log.info("no differences")
 
 
-class Reclaim(FencedCommand):
+class Reclaim(UnitTargets, FencedCommand):
     """Move server-side-apply ownership onto this instance's field manager.
 
     **A one-time repair, for objects that crossed a field-manager change.**
@@ -2231,10 +2223,6 @@ class Reclaim(FencedCommand):
 
     cli_name = "reclaim"
 
-    target: str | None = opt(
-        None,
-        help="Reclaim only this GitOps target's objects (kubernetes.deploymentUnits). Omit for the full kubernetes.generated set.",
-    )
     field_manager_from: list[str] = opt(
         help=f"Manager to take ownership from, repeatable. Empty means {FIELD_MANAGER!r}, which is what a whole-instance apply wrote before deployment.fieldManager existed.",
     )
@@ -2244,20 +2232,20 @@ class Reclaim(FencedCommand):
     )
 
     async def run(self) -> None:
-        if len(split_targets(self.target)) > 1:
+        if len(self.targets) > 1:
             # Ownership moves onto one manager, and each unit may name its own.
             raise SystemExit("reclaim takes one --target")
         uri, customer = _parse_flake(self.flake) if self.flake is not None else (None, None)
         try:
-            cfg = await evaluate_kubeapply_config(self.file, uri, customer, self.attr, self.target)
+            cfg = await evaluate_kubeapply_config(self.file, uri, customer, self.attr, self.targets)
         except NixError as exc:
             _report_nix_error(exc)
         except ValidationError as exc:
             _report_validation_error("kubeapply config", exc)
         # The manager this apply would write as, which is the one ownership
-        # has to end up on. `field_manager` is the last group's -- the named
-        # target's, or the instance's for a whole-instance run.
-        new = cfg.field_manager
+        # has to end up on: the last group's -- the named target's, or the
+        # instance's for a whole-instance run.
+        new = cfg.groups[-1].field_manager
         old = self.field_manager_from or [FIELD_MANAGER]
         if new in set(old):
             raise SystemExit(f"refusing to reclaim {new!r} onto itself; --field-manager-from names the *old* manager")

@@ -45,14 +45,14 @@ class TestTheOptionReachesPython:
     async def test_a_declared_uid_arrives(self, tmp_path: pathlib.Path) -> None:
         f = _instance(tmp_path, f'ekn.clusterUid = "{LIVE}";')
 
-        cfg = await evaluate_kubeapply_config(f, None, None, None, None)
+        cfg = await evaluate_kubeapply_config(f, None, None, None, [])
 
         assert cfg.cluster_uid == LIVE
 
     async def test_undeclared_is_none(self, tmp_path: pathlib.Path) -> None:
         """Which the fence reads as "unknown cluster" and refuses -- the same
         answer an easykubenix older than the option gives."""
-        cfg = await evaluate_kubeapply_config(_instance(tmp_path, ""), None, None, None, None)
+        cfg = await evaluate_kubeapply_config(_instance(tmp_path, ""), None, None, None, [])
 
         assert cfg.cluster_uid is None
 
@@ -71,4 +71,4 @@ class TestTheTypeRefusesWhatIsNotAUid:
         f = _instance(tmp_path, f'ekn.clusterUid = "{value}";')
 
         with pytest.raises(NixError):
-            await evaluate_kubeapply_config(f, None, None, None, None)
+            await evaluate_kubeapply_config(f, None, None, None, [])
