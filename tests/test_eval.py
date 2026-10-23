@@ -6,10 +6,10 @@ from typing import Any, cast
 
 import anyio
 import pytest
+from huggorm.attrpath import AttrPathError
 from huggorm.errors import NixError
 from kappy.apply import DEFAULT_BARRIER_PRIORITY
 
-from ekn.attrpath import EvaluationTargetError
 from ekn.engine import FIELD_MANAGER
 from ekn.eval import (
     evaluate_file,
@@ -90,7 +90,7 @@ class TestRealiseAttr:
         # so a missing first component would mask the empty one.
         f.write_text("{ foo = { }; }")
 
-        with pytest.raises(EvaluationTargetError, match="empty component"):
+        with pytest.raises(AttrPathError, match="empty component"):
             await realise_attr(f, None, "foo..bar")
 
     async def test_requires_file_or_flake(self) -> None:

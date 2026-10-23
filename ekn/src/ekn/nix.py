@@ -27,8 +27,8 @@ from huggorm import (
     parse_flake_ref,
     set_default_verbosity,
 )
+from huggorm.attrpath import auto_call, parse_attr_path, select_attr_path
 
-from ekn.attrpath import parse_attr_path, select_attr_path
 from ekn.nixyaml import register_yaml_primops
 from ekn.storecheck import STORE_DIR
 
@@ -131,21 +131,8 @@ class Value:
         return await (await self.value()).realise_string()
 
     async def auto_call(self) -> Value:
-        """Apply with no arguments, as Nix's `autoCallFunction` does.
-
-        A lambda with formals gets its defaults, and a `__functor` is
-        followed. Anything else answers as it is: huggorm's `apply_auto`
-        refuses it, and a file that evaluates to an attribute set is the
-        ordinary case here.
-        """
-        value = await self.value()
-        if await value.type_name() == "attrs" and await value.has("__functor"):
-            functor = await value.get("__functor")
-            await self.state.force(functor)
-            return await Value(self.state, await functor(value)).auto_call()
-        if await value.type_name() == "function" and await value.is_lambda() and await value.has_formals():
-            return Value(self.state, await value.apply_auto(await self.state.make_attrs()))
-        return Value(self.state, value)
+        """Apply with no arguments, as Nix's `autoCallFunction` does."""
+        return Value(self.state, await auto_call(self.state, await self.value()))
 
 
 @dataclass(frozen=True)
