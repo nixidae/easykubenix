@@ -48,7 +48,22 @@ let
   # root is the `kappy/` project directory of the source, because the set
   # leaves out of the nixpkgs lookup every root whose directory name is a
   # declared dependency, and the source itself is named `source`.
-  kappyRoot = sources.kappy + "/kappy";
+  #
+  # Only that directory is copied. kappy's `flake.lock` names a nixidae commit
+  # and moves with every lock commit, so a copy of the whole source would give
+  # `ekn` a different derivation here than in this repository's own flake,
+  # which reads nixidae at the commit that lock names.
+  kappyRoot =
+    let
+      root = toString sources.kappy;
+    in
+    builtins.path {
+      path = sources.kappy;
+      name = "source";
+      filter =
+        path: _type: path == root || path == "${root}/kappy" || lib.hasPrefix "${root}/kappy/" path;
+    }
+    + "/kappy";
   eknPythonSet = nanopynix.pythonSetWith {
     projectRoots = [
       ./ekn
