@@ -10,15 +10,15 @@ from pathlib import Path
 
 import pytest
 from huggorm.errors import NixError
-
-from ekn import nix
-from ekn.fod import (
+from huggorm.fod import (
     derivation_name_from_path,
     extract_fod_hash_mismatch,
     extract_unique_fod_hash_mismatch,
     find_fod_hash_literal,
     replace_fod_hash,
 )
+
+from ekn import nix
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 

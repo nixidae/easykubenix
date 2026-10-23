@@ -15,7 +15,8 @@ dependencies = [
   # Nix, in-process (nixidae/nixidae#693).
   "huggorm",
   "pydantic",
-  # `ekn.fod` finds a fixed-output hash in Nix source by its syntax tree.
+  # `huggorm.fod` finds a fixed-output hash in Nix source by its syntax tree,
+  # and huggorm leaves these two to the caller that imports it.
   "tree-sitter",
   "tree-sitter-nix",
   "pygit2",

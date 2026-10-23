@@ -16,17 +16,17 @@ import anyio
 import structlog
 from anyio import Path
 from huggorm.errors import NixError
-from pydantic import BaseModel, Field, StringConstraints
-
-from ekn import nix
-from ekn.engine import FIELD_MANAGER, UNIT_LABEL
-from ekn.fod import (
+from huggorm.fod import (
     derivation_name_from_path,
     extract_fod_hash_mismatch,
     extract_unique_fod_hash_mismatch,
     find_fod_hash_literal,
     replace_fod_hash,
 )
+from pydantic import BaseModel, Field, StringConstraints
+
+from ekn import nix
+from ekn.engine import FIELD_MANAGER, UNIT_LABEL
 from ekn.gitops import load_raw_manifest
 from ekn.storecheck import STORE_DIR, store_paths_in_text
 
