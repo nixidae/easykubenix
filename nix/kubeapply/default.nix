@@ -28,7 +28,7 @@
 let
   # `+ "/lib.nix"` and not string interpolation. Interpolating the source
   # would copy the whole checkout -- `.jj` included -- into the store.
-  vivarium = import (sources.vivarium + "/lib.nix") { inherit pkgs; };
+  vivarium = import (sources.vivarium + "/lib.nix") { inherit pkgs sources; };
 
   # For `workloadImage`, which is the tag modules/k8s.nix imports into
   # containerd at boot. A pod may only use it with `imagePullPolicy: Never`.
