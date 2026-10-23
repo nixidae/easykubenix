@@ -578,11 +578,12 @@ class TestKubeApplyTofuCheck:
         monkeypatch.setattr("ekn.cli.evaluate_tofu_units", evaluate)
         apply = object.__new__(KubeApply)
         apply.file = None
+        apply.flake = None
         apply.attr = None
         objects = [{"kind": "TofuUnit", "metadata": {"annotations": {UNITS_ANNOTATION: "day2"}}}]
 
         with pytest.raises(SystemExit):
-            await apply._check_shipped_tofu_units(objects, None, None)
+            await apply._check_shipped_tofu_units(objects)
         assert asked == [frozenset({"day2"})]
 
     async def test_an_apply_shipping_no_unit_evaluates_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -591,4 +592,4 @@ class TestKubeApplyTofuCheck:
 
         monkeypatch.setattr("ekn.cli.evaluate_tofu_units", evaluate)
         apply = object.__new__(KubeApply)
-        await apply._check_shipped_tofu_units([{"kind": "ConfigMap", "metadata": {}}], None, None)
+        await apply._check_shipped_tofu_units([{"kind": "ConfigMap", "metadata": {}}])

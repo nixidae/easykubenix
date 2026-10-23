@@ -25,6 +25,7 @@ from ekn.cli import (
 )
 from ekn.eval import (
     CacheConfigResult,
+    Instance,
     KubeApplyConfigResult,
     evaluate_cache_config,
     evaluate_file,
@@ -523,7 +524,7 @@ class TestCachePushTimeout:
             }}
         """)
 
-        cfg = await evaluate_cache_config(f, None, None, None)
+        cfg = await evaluate_cache_config(Instance(f))
 
         assert cfg.cache_timeout_sec == 7
         # A bare string in Nix, a one-element list here: normalised at the
@@ -556,7 +557,7 @@ class TestCachePushTimeout:
             }}
         """)
 
-        cfg = await evaluate_cache_config(f, None, None, None)
+        cfg = await evaluate_cache_config(Instance(f))
 
         assert cfg.cache_accept_new_host_keys is False
 
@@ -590,7 +591,7 @@ class TestCachePushTimeout:
             }}
         """)
 
-        cfg = await evaluate_cache_config(f, None, None, None)
+        cfg = await evaluate_cache_config(Instance(f))
 
         hello = [path for path in cfg.cache_paths if path.endswith("-hello-2.12.3")]
         assert hello, f"the stripped path is missing from {cfg.cache_paths}"
@@ -618,7 +619,7 @@ class TestCachePushTimeout:
             }}
         """)
 
-        cfg = await evaluate_cache_config(f, None, None, None)
+        cfg = await evaluate_cache_config(Instance(f))
 
         assert cfg.cache_to == ["ssh-ng://nix@pynixd", "https://nixkube.cachix.org"]
 
@@ -643,7 +644,7 @@ class TestCachePushTimeout:
             }}
         """)
 
-        cfg = await evaluate_cache_config(f, None, None, None)
+        cfg = await evaluate_cache_config(Instance(f))
 
         assert cfg.cache_to == []
 

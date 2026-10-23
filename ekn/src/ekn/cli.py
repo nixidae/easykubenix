@@ -39,6 +39,7 @@ from ekn.engine import (
 from ekn.eval import (
     ApplyGroup,
     GitOpsManifestsResult,
+    Instance,
     KubeApplyConfigResult,
     UnrealisedPathsError,
     evaluate_cache_config,
@@ -144,6 +145,11 @@ def _parse_flake(flake_ref: str) -> tuple[str, str | None]:
     return uri, customer
 
 
+def _instance(file: _Path | None, flake: str | None, attr: str | None) -> Instance:
+    uri, customer = _parse_flake(flake) if flake is not None else (None, None)
+    return Instance(file, uri, customer, attr)
+
+
 async def _evaluate(
     file: _Path | None,
     flake: str | None,
@@ -170,8 +176,7 @@ async def _evaluate_gitops(
     """Like `_evaluate`, but only forces kubernetes.deploymentUnits -- the
     only field Diff/Commit/Deploy read via `gitops.file_groups`."""
     try:
-        uri, customer = _parse_flake(flake) if flake is not None else (None, None)
-        return await evaluate_gitops_manifests(file, uri, customer, attr)
+        return await evaluate_gitops_manifests(_instance(file, flake, attr))
     except NixError as exc:
         _report_nix_error(exc)
     except ValidationError as exc:
@@ -202,6 +207,10 @@ class AttrCommand(NixCommand):
     """
 
     attr: str | None = opt(None, short="A", help="Dot-separated attribute path within the evaluation result.")
+
+    @property
+    def instance(self) -> Instance:
+        return _instance(self.file, self.flake, self.attr)
 
 
 class UnitTargets:
@@ -268,15 +277,8 @@ class Eval(AttrCommand):
             if self.source_file is None:
                 _log.error("--update-fod requires --source-file")
                 raise SystemExit(1)
-            uri, customer = _parse_flake(self.flake) if self.flake is not None else (None, None)
             try:
-                result = await evaluate_with_fod_update(
-                    self.file,
-                    uri,
-                    customer,
-                    self.attr,
-                    source_file=self.source_file,
-                )
+                result = await evaluate_with_fod_update(self.instance, source_file=self.source_file)
             except NixError as exc:
                 _report_nix_error(exc)
         else:
@@ -304,11 +306,10 @@ class Render(UnitTargets, AttrCommand):
     )
 
     async def run(self) -> None:
-        uri, customer = _parse_flake(self.flake) if self.flake is not None else (None, None)
         try:
             with package_placeholder_evaluation(enabled=self.package_placeholders):
                 manifests, spec_dir = await evaluate_generated_with_spec(
-                    self.file, uri, customer, self.attr, with_spec=self.validate, targets=self.targets
+                    self.instance, with_spec=self.validate, targets=self.targets
                 )
         except NixError as exc:
             _report_nix_error(exc)
@@ -609,8 +610,7 @@ async def _push_ekn_cache(file: _Path | None, flake: str | None, attr: str | Non
     those pods fail to start the moment ArgoCD/Flux syncs.
     """
     try:
-        uri, customer = _parse_flake(flake) if flake is not None else (None, None)
-        cfg = await evaluate_cache_config(file, uri, customer, attr)
+        cfg = await evaluate_cache_config(_instance(file, flake, attr))
     except NixError as exc:
         _report_nix_error(exc)
     except ValidationError as exc:
@@ -902,9 +902,8 @@ class SchemaCheck(FencedCommand):
     )
 
     async def run(self) -> None:
-        uri, customer = _parse_flake(str(self.flake)) if self.flake is not None else (None, None)
         try:
-            cfg = await evaluate_schemacheck_config(self.file, uri, customer, self.attr, live=not self.offline)
+            cfg = await evaluate_schemacheck_config(self.instance, live=not self.offline)
         except NixError as exc:
             _report_nix_error(exc)
         objects = await load_manifest_objects(cfg.manifest_json_file)
@@ -1070,9 +1069,8 @@ class Deploy(CachePushCommand, Commit):
 
     async def _check_tofu_units(self) -> None:
         """Check every tf unit's config.tf.json, as `ekn tofu` does before it runs."""
-        uri, customer = _parse_flake(self.flake) if self.flake is not None else (None, None)
         try:
-            units = await evaluate_tofu_units(self.file, uri, customer, self.attr)
+            units = await evaluate_tofu_units(self.instance)
         except NixError as exc:
             _report_nix_error(exc)
         except ValidationError as exc:
@@ -1716,9 +1714,7 @@ class KubeApply(UnitTargets, CachePushCommand, FencedCommand):
         "environment should use an ordinary kubeconfig instead.",
     )
 
-    async def _check_shipped_tofu_units(
-        self, objects: list[dict[str, Any]], uri: str | None, customer: str | None
-    ) -> None:
+    async def _check_shipped_tofu_units(self, objects: list[dict[str, Any]]) -> None:
         """Check each tf unit an object being applied names in `ekn.dev/tofu-units`.
 
         Something in the cluster runs those units, so this apply is the last
@@ -1728,7 +1724,7 @@ class KubeApply(UnitTargets, CachePushCommand, FencedCommand):
         if not names:
             return
         try:
-            units = await evaluate_tofu_units(self.file, uri, customer, self.attr, frozenset(names))
+            units = await evaluate_tofu_units(self.instance, frozenset(names))
         except NixError as exc:
             _report_nix_error(exc)
         except ValidationError as exc:
@@ -1738,12 +1734,7 @@ class KubeApply(UnitTargets, CachePushCommand, FencedCommand):
             raise SystemExit(1) from exc
         await _check_tofu_units(units)
 
-    async def _kubeconfig(
-        self,
-        stack: contextlib.AsyncExitStack,
-        uri: str | None,
-        customer: str | None,
-    ) -> str | None:
+    async def _kubeconfig(self, stack: contextlib.AsyncExitStack) -> str | None:
         """The kubeconfig this apply uses, or None for the ambient one.
 
         With `--kubeconfig-from-tofu UNIT:OUTPUT`, the credential comes out of
@@ -1767,7 +1758,7 @@ class KubeApply(UnitTargets, CachePushCommand, FencedCommand):
             _log.error("--kubeconfig-from-tofu takes UNIT:OUTPUT")
             raise SystemExit(1)
         try:
-            units = await evaluate_tofu_units(self.file, uri, customer, self.attr, unit_name)
+            units = await evaluate_tofu_units(self.instance, unit_name)
             return await stack.enter_async_context(tofu_kubeconfig(units[-1], output_name))
         except NixError as exc:
             _report_nix_error(exc)
@@ -1806,9 +1797,8 @@ class KubeApply(UnitTargets, CachePushCommand, FencedCommand):
                 "ekn.clusterUid asks the cluster which one it is, so neither gets past it."
             )
 
-        uri, customer = _parse_flake(self.flake) if self.flake is not None else (None, None)
         try:
-            cfg = await evaluate_kubeapply_config(self.file, uri, customer, self.attr, self.targets)
+            cfg = await evaluate_kubeapply_config(self.instance, self.targets)
         except NixError as exc:
             _report_nix_error(exc)
         except ValidationError as exc:
@@ -1818,7 +1808,7 @@ class KubeApply(UnitTargets, CachePushCommand, FencedCommand):
             # Before the push and the fence: it needs no cluster, so a unit
             # that would fail inside the cluster stops the apply before
             # anything is touched.
-            await self._check_shipped_tofu_units(cfg.objects, uri, customer)
+            await self._check_shipped_tofu_units(cfg.objects)
 
         # Before the push, not only before the apply. The hook exists for a
         # path `ekn.cacheTo` cannot place, so it has to be able to repair
@@ -1842,7 +1832,7 @@ class KubeApply(UnitTargets, CachePushCommand, FencedCommand):
         # temporary file that must outlive the apply and not outlive the
         # command, and without one the whole body would be written twice.
         async with contextlib.AsyncExitStack() as stack:
-            kubeconfig = await self._kubeconfig(stack, uri, customer)
+            kubeconfig = await self._kubeconfig(stack)
             api = await kr8s.asyncio.api(kubeconfig=kubeconfig)
             # Above `ensure_age_identities`, which creates a Namespace and a
             # Secret, and above `_hold_the_engine`, which scales workloads
@@ -1899,10 +1889,9 @@ class _TofuCommand(AttrCommand):
     tofu_args: ClassVar[tuple[str, ...]] = ()
 
     async def _units(self) -> list[TofuUnit]:
-        uri, customer = _parse_flake(self.flake) if self.flake is not None else (None, None)
         try:
-            units = await evaluate_tofu_units(self.file, uri, customer, self.attr, self.target)
-            await self._warn_orphans(uri, customer)
+            units = await evaluate_tofu_units(self.instance, self.target)
+            await self._warn_orphans()
         except NixError as exc:
             _report_nix_error(exc)
         except ValidationError as exc:
@@ -1917,14 +1906,14 @@ class _TofuCommand(AttrCommand):
             await _check_tofu_units(units)
         return units
 
-    async def _warn_orphans(self, uri: str | None, customer: str | None) -> None:
+    async def _warn_orphans(self) -> None:
         """Say when state exists for a unit the evaluation no longer declares.
 
         A `tf` unit deleted from the Nix configuration leaves its real
         infrastructure running with nothing able to name it -- see
         `tofu.orphaned_state`. Every `ekn tofu` run is a cheap place to notice.
         """
-        every = await evaluate_tofu_units(self.file, uri, customer, self.attr)
+        every = await evaluate_tofu_units(self.instance)
         scan = await tofu_orphaned_state(every)
         if scan.orphans:
             _log.warning(
@@ -2016,9 +2005,8 @@ class TofuDestroy(_TofuCommand):
     async def run(self) -> None:
         # Every unit, not this one's chain: the question here is who depends on
         # the named unit, and that cannot be answered from its own closure.
-        uri, customer = _parse_flake(self.flake) if self.flake is not None else (None, None)
         try:
-            every = await evaluate_tofu_units(self.file, uri, customer, self.attr)
+            every = await evaluate_tofu_units(self.instance)
         except NixError as exc:
             _report_nix_error(exc)
         except ValidationError as exc:
@@ -2118,9 +2106,8 @@ class Secrets(UnitTargets, FencedCommand):
     """
 
     async def run(self) -> None:
-        uri, customer = _parse_flake(self.flake) if self.flake is not None else (None, None)
         try:
-            cfg = await evaluate_kubeapply_config(self.file, uri, customer, self.attr, self.targets)
+            cfg = await evaluate_kubeapply_config(self.instance, self.targets)
         except NixError as exc:
             _report_nix_error(exc)
         except ValidationError as exc:
@@ -2171,9 +2158,8 @@ class ClusterDiff(UnitTargets, FencedCommand):
     )
 
     async def run(self) -> None:
-        uri, customer = _parse_flake(self.flake) if self.flake is not None else (None, None)
         try:
-            cfg = await evaluate_kubeapply_config(self.file, uri, customer, self.attr, self.targets)
+            cfg = await evaluate_kubeapply_config(self.instance, self.targets)
         except NixError as exc:
             _report_nix_error(exc)
         except ValidationError as exc:
@@ -2235,9 +2221,8 @@ class Reclaim(UnitTargets, FencedCommand):
         if len(self.targets) > 1:
             # Ownership moves onto one manager, and each unit may name its own.
             raise SystemExit("reclaim takes one --target")
-        uri, customer = _parse_flake(self.flake) if self.flake is not None else (None, None)
         try:
-            cfg = await evaluate_kubeapply_config(self.file, uri, customer, self.attr, self.targets)
+            cfg = await evaluate_kubeapply_config(self.instance, self.targets)
         except NixError as exc:
             _report_nix_error(exc)
         except ValidationError as exc:

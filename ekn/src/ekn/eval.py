@@ -7,6 +7,7 @@ import sys
 import time
 from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
+from dataclasses import dataclass
 from os import PathLike
 from pathlib import Path as _SyncPath
 from typing import TYPE_CHECKING, Annotated, Any, cast
@@ -490,13 +491,18 @@ async def _evaluator() -> AsyncGenerator[nix.Evaluator]:
         yield eval_
 
 
-async def _resolve_proxy(
-    eval_: nix.Evaluator,
-    file: str | PathLike[str] | None,
-    flake_uri: str | None,
-    customer: str | None,
-    attr_path: str | None,
-) -> nix.Value:
+@dataclass(frozen=True, slots=True)
+class Instance:
+    """The instance a command reads: `--file`, or `--flake` with an optional
+    customer, then narrowed by `--attr`."""
+
+    file: str | PathLike[str] | None = None
+    flake_uri: str | None = None
+    customer: str | None = None
+    attr_path: str | None = None
+
+
+async def _resolve_proxy(eval_: nix.Evaluator, instance: Instance) -> nix.Value:
     """Resolve --file/--flake[+--customer] into a proxy, then narrow by
     attr_path if given -- the branching prelude duplicated verbatim across
     evaluate_with_fod_update/evaluate_flake_ekn/evaluate_generated_with_spec/
@@ -507,20 +513,20 @@ async def _resolve_proxy(
     to_python's whatever attr_path picks directly and never descended into
     `.config`.
     """
-    if flake_uri is not None:
-        outputs = await eval_.flake(flake_uri)
-        if customer:
+    if instance.flake_uri is not None:
+        outputs = await eval_.flake(instance.flake_uri)
+        if instance.customer:
             system = await (await eval_.expr("builtins.currentSystem")).to_python()
-            proxy = outputs.attr("eknConfig").attr(str(system)).attr(customer)
+            proxy = outputs.attr("eknConfig").attr(str(system)).attr(instance.customer)
         else:
             proxy = outputs
-    elif file is not None:
-        proxy = await eval_.file(str(file))
+    elif instance.file is not None:
+        proxy = await eval_.file(str(instance.file))
     else:
         raise ValueError("specify --file or --flake")
 
-    if attr_path:
-        proxy = await proxy.select(attr_path)
+    if instance.attr_path:
+        proxy = await proxy.select(instance.attr_path)
 
     return proxy
 
@@ -551,11 +557,8 @@ async def evaluate_file_multi(
     return results
 
 
-async def evaluate_with_fod_update(  # noqa: PLR0913 -- tracked complexity/arg-count debt, see TODO.md
-    file: str | PathLike[str] | None,
-    flake_uri: str | None,
-    customer: str | None,
-    attr_path: str | None,
+async def evaluate_with_fod_update(
+    instance: Instance,
     *,
     source_file: str | PathLike[str],
     max_updates: int = 10,
@@ -582,7 +585,7 @@ async def evaluate_with_fod_update(  # noqa: PLR0913 -- tracked complexity/arg-c
         while True:
             async with eval_.capture() as logs:
                 try:
-                    proxy = await _resolve_proxy(eval_, file, flake_uri, customer, attr_path)
+                    proxy = await _resolve_proxy(eval_, instance)
                     return await proxy.to_python()
                 except NixError as exc:
                     error = exc
@@ -623,7 +626,7 @@ async def evaluate_flake(flake_uri: str, attr_path: str | None) -> object:
 
 async def evaluate_flake_ekn(flake_uri: str, customer: str) -> FlakeEknResult:
     async with _evaluator() as eval_:
-        proxy = await _resolve_proxy(eval_, None, flake_uri, customer, None)
+        proxy = await _resolve_proxy(eval_, Instance(flake_uri=flake_uri, customer=customer))
         if await proxy.has_attr("config"):
             proxy = proxy.attr("config")
 
@@ -665,10 +668,7 @@ def timed_stage(label: str) -> Generator[None]:
 
 
 async def evaluate_generated_with_spec(
-    file: str | PathLike[str] | None,
-    flake_uri: str | None,
-    customer: str | None,
-    attr_path: str | None,
+    instance: Instance,
     *,
     with_spec: bool,
     targets: Sequence[str] = (),
@@ -689,7 +689,7 @@ async def evaluate_generated_with_spec(
         t_session_ready = time.monotonic()
         _log_timing("session/store/eval-session setup", t_session_ready - t_start)
 
-        proxy = await _resolve_proxy(eval_, file, flake_uri, customer, attr_path)
+        proxy = await _resolve_proxy(eval_, instance)
         if await proxy.has_attr("config"):
             proxy = proxy.attr("config")
 
@@ -709,10 +709,7 @@ async def evaluate_generated_with_spec(
 
 
 async def evaluate_gitops_manifests(
-    file: str | PathLike[str] | None,
-    flake_uri: str | None,
-    customer: str | None,
-    attr_path: str | None,
+    instance: Instance,
 ) -> GitOpsManifestsResult:
     """Resolve to `{"config": {"kubernetes": {"deploymentUnits": ...},
     "deployment": {"deployBranch": ..., "sourceBranch": ...}}}`.
@@ -725,7 +722,7 @@ async def evaluate_gitops_manifests(
     forcing everything else was pure waste.
     """
     async with _evaluator() as eval_:
-        proxy = await _resolve_proxy(eval_, file, flake_uri, customer, attr_path)
+        proxy = await _resolve_proxy(eval_, instance)
         if await proxy.has_attr("config"):
             proxy = proxy.attr("config")
 
@@ -771,10 +768,7 @@ async def evaluate_gitops_manifests(
 
 
 async def evaluate_tofu_units(
-    file: str | PathLike[str] | None,
-    flake_uri: str | None,
-    customer: str | None,
-    attr_path: str | None,
+    instance: Instance,
     target: str | frozenset[str] | None = None,
 ) -> list[TofuUnit]:
     """`deployment.tofuUnits`, built and ready to run.
@@ -790,7 +784,7 @@ async def evaluate_tofu_units(
     on disk.
     """
     async with _evaluator() as eval_:
-        proxy = await _resolve_proxy(eval_, file, flake_uri, customer, attr_path)
+        proxy = await _resolve_proxy(eval_, instance)
         if await proxy.has_attr("config"):
             proxy = proxy.attr("config")
 
@@ -995,10 +989,7 @@ async def _instance_field_manager(deployment: Any) -> str:
 
 
 async def evaluate_kubeapply_config(
-    file: str | PathLike[str] | None,
-    flake_uri: str | None,
-    customer: str | None,
-    attr_path: str | None,
+    instance: Instance,
     targets: Sequence[str],
 ) -> KubeApplyConfigResult:
     """Resolve the object list `ekn kubeapply` should apply, plus the
@@ -1018,7 +1009,7 @@ async def evaluate_kubeapply_config(
     prune selector -- see `apply.prune_selector`.
     """
     async with _evaluator() as eval_:
-        proxy = await _resolve_proxy(eval_, file, flake_uri, customer, attr_path)
+        proxy = await _resolve_proxy(eval_, instance)
         if await proxy.has_attr("config"):
             proxy = proxy.attr("config")
 
@@ -1127,10 +1118,7 @@ async def evaluate_kubeapply_config(
 
 
 async def evaluate_cache_config(
-    file: str | PathLike[str] | None,
-    flake_uri: str | None,
-    customer: str | None,
-    attr_path: str | None,
+    instance: Instance,
 ) -> CacheConfigResult:
     """Resolve `ekn.cacheTo` and the store paths to push there, for the
     automatic pre-git-push cache push (see `cli.py`'s `Deploy.run`).
@@ -1152,7 +1140,7 @@ async def evaluate_cache_config(
     push more than one apply needs. That is the safe direction.
     """
     async with _evaluator() as eval_:
-        proxy = await _resolve_proxy(eval_, file, flake_uri, customer, attr_path)
+        proxy = await _resolve_proxy(eval_, instance)
         if await proxy.has_attr("config"):
             proxy = proxy.attr("config")
 
@@ -1537,7 +1525,7 @@ async def evaluate_validation_file(
 
 async def evaluate_validation_config(flake_uri: str, customer: str) -> ValidationResult:
     async with _evaluator() as eval_:
-        proxy = await _resolve_proxy(eval_, None, flake_uri, customer, None)
+        proxy = await _resolve_proxy(eval_, Instance(flake_uri=flake_uri, customer=customer))
         return await _validation_config(proxy)
 
 
@@ -1555,15 +1543,12 @@ class SchemaCheckConfig(BaseModel):
 
 
 async def evaluate_schemacheck_config(
-    file: str | PathLike[str] | None,
-    flake_uri: str | None,
-    customer: str | None,
-    attr_path: str | None,
+    instance: Instance,
     *,
     live: bool,
 ) -> SchemaCheckConfig:
     async with _evaluator() as eval_:
-        proxy = await _resolve_proxy(eval_, file, flake_uri, customer, attr_path)
+        proxy = await _resolve_proxy(eval_, instance)
         if await proxy.has_attr("config"):
             proxy = proxy.attr("config")
         ekn_opts = proxy.attr("ekn")
@@ -1584,6 +1569,7 @@ async def evaluate_schemacheck_config(
 __all__ = [
     "GitOpsManifestsResult",
     "GitOpsTargetEntry",
+    "Instance",
     "NixError",
     "SchemaCheckConfig",
     "SopsAgeIdentity",
