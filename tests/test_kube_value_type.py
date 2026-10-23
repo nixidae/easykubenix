@@ -233,8 +233,13 @@ class TestKubeValueType:
             await evaluate_file(NIX_TEST_FILE, "mkNamedListRejectsNonAttrsInput")
 
     async def test_mk_named_list_rejects_non_attrs_values(self) -> None:
-        with pytest.raises(NixError, match="must themselves be attribute sets"):
+        with pytest.raises(NixError, match="the value for key 'a' is not an attribute set"):
             await evaluate_file(NIX_TEST_FILE, "mkNamedListRejectsNonAttrsValues")
+
+    async def test_mk_named_list_is_lazy_in_its_values(self) -> None:
+        # Reading the marker's names must not force an entry: an entry can
+        # name a store path, and forcing it instantiates the derivation.
+        assert await evaluate_file(NIX_TEST_FILE, "mkNamedListIsLazyInItsValues") is True
 
     async def test_mk_numbered_list_rejects_non_int_keys(self) -> None:
         with pytest.raises(NixError, match="must be integer strings"):

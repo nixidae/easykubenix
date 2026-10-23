@@ -1383,7 +1383,11 @@ let
   mkReplaceListRejectsTheEmptyKey = lib.mkReplaceList { "" = "--a"; };
 
   mkNamedListRejectsNonAttrsInput = lib.mkNamedList [ { name = "a"; } ];
-  mkNamedListRejectsNonAttrsValues = lib.mkNamedList { a = "not-an-attrset"; };
+  # Refused when the list resolves, not when the marker is built.
+  mkNamedListRejectsNonAttrsValues = evalValue [
+    { value.containers = lib.mkNamedList { a = "not-an-attrset"; }; }
+  ];
+  mkNamedListIsLazyInItsValues = (lib.mkNamedList { a = throw "forced"; }) ? a;
   mkNumberedListRejectsNonIntKeys = lib.mkNumberedList {
     notanumber = {
       image = "x";
@@ -1527,6 +1531,7 @@ in
   mkOrderOnNamedEntryThrows = mkOrderOnNamedEntryThrows;
   mkNamedListRejectsNonAttrsInput = mkNamedListRejectsNonAttrsInput;
   mkNamedListRejectsNonAttrsValues = mkNamedListRejectsNonAttrsValues;
+  mkNamedListIsLazyInItsValues = mkNamedListIsLazyInItsValues;
   mkNumberedListRejectsNonIntKeys = mkNumberedListRejectsNonIntKeys;
   untypedTwiceThrows = untypedTwiceThrows;
   replaceKeyMatchesNothingThrows = replaceKeyMatchesNothingThrows;

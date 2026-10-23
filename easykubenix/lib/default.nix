@@ -127,14 +127,15 @@ self: lib: rec {
   # Each element of such a field has a `name`.
   # The attribute name becomes the `name` of the element.
   # Each value in the input attribute set must also be an attribute set.
+  #
+  # The values are not checked here: that would make the marker strict in
+  # every entry. Resolution refuses a value that is not an attribute set.
+  # Measured on nixlab3: a CNPG `env` entry that compared a store-path string
+  # to null instantiated postgresql's closure just to read an object's names.
   mkNamedList =
     attrs:
     if !lib.isAttrs attrs then
       throw "mkNamedList error: Input must be an attribute set."
-    # All children must also be attribute sets. This is a rule of the named-list
-    # contract. Only objects can have a name.
-    else if !(lib.all lib.isAttrs (lib.attrValues attrs)) then
-      throw "mkNamedList error: All values in the attribute set must themselves be attribute sets."
     else
       attrs // { _type = namedListType; };
 
