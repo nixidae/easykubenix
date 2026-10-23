@@ -1143,6 +1143,10 @@ class TestGitOpsTargetSubmoduleEndToEnd:
         # `field_manager` still answers for the unit the user named.
         assert cfg.field_manager == "argocd-controller"
 
+    async def test_an_unknown_target_names_the_declared_units(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match=r"unknown gitops target 'nope'; declared targets: bootstrap, secrets"):
+            await evaluate_kubeapply_config(self._dependency_probe(tmp_path), None, None, None, "nope")
+
     async def test_a_whole_instance_apply_is_one_group(self, tmp_path: Path) -> None:
         cfg = await evaluate_kubeapply_config(self._probe(tmp_path), None, None, None, None)
 

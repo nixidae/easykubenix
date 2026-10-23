@@ -936,6 +936,28 @@ def _load_raw_manifests(paths: list[tuple[str, str | None]]) -> list[dict[str, A
     return [_raw_manifest_in_unit(path, unit) for path, unit in paths if isinstance(path, str)]
 
 
+async def _target_units(units: nix.Value, target: str) -> dict[str, JsonValue]:
+    """The `kubernetes.deploymentUnits` entries a `--target` apply reads: the
+    target and its dependency closure, each `to_python`'d on its own.
+
+    Not the whole attrset. That carries every unit's objects, and on nixlab3
+    serialising it cost 38s against 20s for one unit's entry.
+    """
+    declared = await units.attr_names()
+
+    async def entry(name: str) -> JsonValue:
+        if name not in declared:
+            # Raises the "unknown gitops target" error, naming the declared set.
+            _unpack_gitops_target(dict.fromkeys(declared), name)
+        return await units.attr(name).to_python()
+
+    selected = {target: await entry(target)}
+    _, _, _, dependencies = _unpack_gitops_target(selected, target)
+    for name in dependencies:
+        selected[name] = await entry(name)
+    return selected
+
+
 def _unit_group(units: JsonValue, name: str) -> dict[str, Any]:
     """One deployment unit as an `ApplyGroup`'s fields."""
     objects, raw_file_paths, field_manager, _ = _unpack_gitops_target(units, name)
@@ -988,18 +1010,20 @@ async def evaluate_kubeapply_config(
     prune selector -- see `apply.prune_selector`.
     """
     async with _evaluator() as eval_:
-        proxy = await _resolve_proxy(eval_, file, flake_uri, customer, attr_path)
-        if await proxy.has_attr("config"):
-            proxy = proxy.attr("config")
+        with timed_stage("kubeapply: resolve the configuration"):
+            proxy = await _resolve_proxy(eval_, file, flake_uri, customer, attr_path)
+            if await proxy.has_attr("config"):
+                proxy = proxy.attr("config")
 
-        environment = await proxy.attr("ekn").attr("environment").to_python()
+            environment = await proxy.attr("ekn").attr("environment").to_python()
 
         deployment = proxy.attr("deployment")
         # Read before the groups, because the untargeted group needs it.
         instance_manager = await _instance_field_manager(deployment)
 
         if target:
-            units = await proxy.attr("kubernetes").attr("deploymentUnits").to_python()
+            with timed_stage("kubeapply: to_python the target's units"):
+                units = await _target_units(proxy.attr("kubernetes").attr("deploymentUnits"), target)
             _, _, _, dependencies = _unpack_gitops_target(units, target)
             # The dependency closure first, deepest first, then the named
             # unit. Each keeps its own `fieldManager`; see `ApplyGroup`.

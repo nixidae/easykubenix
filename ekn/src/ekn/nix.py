@@ -118,6 +118,9 @@ class Value:
     async def has_attr(self, name: str) -> bool:
         return await (await self.value()).has(name)
 
+    async def attr_names(self) -> list[str]:
+        return list(await (await self.value()).names())
+
     async def to_python(self) -> JsonValue:
         """The value as plain data: Nix's own `printValueAsJSON`, strict."""
         return json.loads(await (await self.value()).to_json())
