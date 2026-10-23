@@ -98,7 +98,7 @@
         {
           default = pkgs.python3Packages.callPackage ./nix/shell.nix {
             ruff = pkgs.ruff;
-            inherit (each.${system}.passthru) eknDevEnv;
+            inherit (each.${system}.passthru) eknDevEnv nixvenv;
           };
         }
       );

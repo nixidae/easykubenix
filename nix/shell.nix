@@ -21,22 +21,25 @@
   # only importable modules and so drop an application together with
   # everything it propagates.
   eknDevEnv,
+  nixvenv,
 }:
 let
   # Sphinx is only a command-line tool here. The docs are hand-written Markdown
   # with no autodoc, so `sphinx-build` does not import `ekn` or anything else
   # from this repository -- it needs no overlap with `eknDevEnv`.
-  docsEnv = python.withPackages (pp: [
-    sphinx
-    myst-parser
-    furo
-  ]);
+  docsEnv = nixvenv {
+    inherit python;
+    packages = _: [
+      sphinx
+      myst-parser
+      furo
+    ];
+    executables = [ "sphinx-build" ];
+  };
 in
 mkShell {
-  # The order of this list decides the order of PATH. `eknDevEnv` must come
-  # first. Both environments give a `python3`, and pytest must run in the one
-  # that holds `ekn` and huggorm. `docsEnv` still gives `sphinx-build`,
-  # because `eknDevEnv` does not have it.
+  # `docsEnv` gives `sphinx-build` alone, so `python3` and pytest come
+  # from `eknDevEnv`, which holds `ekn` and huggorm.
   packages = [
     eknDevEnv
     docsEnv
