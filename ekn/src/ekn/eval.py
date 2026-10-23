@@ -700,8 +700,9 @@ async def evaluate_generated_with_spec(
 
         t_before_force = time.monotonic()
         if target:
-            units = await _unit_entries(proxy.attr("kubernetes").attr("deploymentUnits"), [target])
-            result, _, _, _ = _unpack_gitops_target(units, target)
+            names = split_targets(target)
+            units = await _unit_entries(proxy.attr("kubernetes").attr("deploymentUnits"), names)
+            result = [obj for name in names for obj in _unpack_gitops_target(units, name)[0]]
         else:
             result = await proxy.attr("kubernetes").attr("generated").to_python()
         t_after_force = time.monotonic()
@@ -959,11 +960,23 @@ async def _unit_entries(units: nix.Value, names: list[str]) -> dict[str, JsonVal
     return selected
 
 
-async def _target_units(units: nix.Value, target: str) -> dict[str, JsonValue]:
-    """The entries a `--target` apply reads: the target and its dependency closure."""
-    selected = await _unit_entries(units, [target])
-    _, _, _, dependencies = _unpack_gitops_target(selected, target)
-    return {**await _unit_entries(units, dependencies), **selected}
+def split_targets(target: str | None) -> list[str]:
+    """`--target a,b` as unit names, in the order given."""
+    return [name.strip() for name in (target or "").split(",") if name.strip()]
+
+
+async def _target_units(units: nix.Value, targets: list[str]) -> dict[str, JsonValue]:
+    """The entries a `--target` apply reads, in apply order: each target's
+    dependency closure, deepest first, then the target. A unit appears once,
+    where it first comes."""
+    named = await _unit_entries(units, targets)
+    ordered: dict[str, JsonValue] = {}
+    for target in targets:
+        _, _, _, dependencies = _unpack_gitops_target(named, target)
+        for name in [*dependencies, target]:
+            if name not in ordered:
+                ordered[name] = named[name] if name in named else (await _unit_entries(units, [name]))[name]
+    return ordered
 
 
 def _unit_group(units: JsonValue, name: str) -> dict[str, Any]:
@@ -1031,11 +1044,10 @@ async def evaluate_kubeapply_config(
 
         if target:
             with timed_stage("kubeapply: to_python the target's units"):
-                units = await _target_units(proxy.attr("kubernetes").attr("deploymentUnits"), target)
-            _, _, _, dependencies = _unpack_gitops_target(units, target)
+                units = await _target_units(proxy.attr("kubernetes").attr("deploymentUnits"), split_targets(target))
             # The dependency closure first, deepest first, then the named
             # unit. Each keeps its own `fieldManager`; see `ApplyGroup`.
-            groups = [_unit_group(units, name) for name in [*dependencies, target]]
+            groups = [_unit_group(units, name) for name in units]
         else:
             generated = await proxy.attr("kubernetes").attr("generated").to_python()
             if not isinstance(generated, list):

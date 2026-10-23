@@ -1218,6 +1218,21 @@ class TestGitOpsTargetSubmoduleEndToEnd:
         # `field_manager` still answers for the unit the user named.
         assert cfg.field_manager == "argocd-controller"
 
+    @pytest.mark.parametrize("targets", ["bootstrap,secrets", "secrets,bootstrap", "bootstrap, secrets"])
+    async def test_several_targets_apply_each_unit_once_after_its_dependencies(
+        self, tmp_path: Path, targets: str
+    ) -> None:
+        cfg = await evaluate_kubeapply_config(self._dependency_probe(tmp_path), None, None, None, targets)
+
+        assert [group.unit for group in cfg.groups] == ["secrets", "bootstrap"]
+
+    async def test_a_render_of_several_targets_keeps_the_order_given(self, tmp_path: Path) -> None:
+        objects, _ = await evaluate_generated_with_spec(
+            self._dependency_probe(tmp_path), None, None, None, with_spec=False, target="bootstrap,secrets"
+        )
+        assert isinstance(objects, list)
+        assert [obj["metadata"]["name"] for obj in objects] == ["root", "repo"]
+
     async def test_a_target_render_holds_the_unit_alone(self, tmp_path: Path) -> None:
         # Not its dependencies: render is for reading one unit.
         objects, _ = await evaluate_generated_with_spec(

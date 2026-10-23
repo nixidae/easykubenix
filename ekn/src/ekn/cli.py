@@ -56,6 +56,7 @@ from ekn.eval import (
     push_closure_to_store,
     python_profile,
     realise_attr,
+    split_targets,
     ssh_failure_hint,
     timed_stage,
     verbose_session,
@@ -288,8 +289,8 @@ class Render(AttrCommand):
 
     target: str | None = opt(
         None,
-        help="Render only this deployment unit's objects (kubernetes.deploymentUnits), without the units "
-        "it depends on. Omit for the full kubernetes.generated set.",
+        help="Render only these deployment units' objects (kubernetes.deploymentUnits), comma-separated, "
+        "without the units they depend on. Omit for the full kubernetes.generated set.",
     )
 
     async def run(self) -> None:
@@ -1591,7 +1592,7 @@ async def _apply_prepared(  # noqa: PLR0913 -- the state `_apply_groups` built, 
                 api=api,
                 cfg=cfg,
                 options=converge,
-                prune=prune and group.unit == target,
+                prune=prune and (target is None or group.unit in split_targets(target)),
                 protect=protected,
                 unit_managers=unit_managers,
                 cache=cache,
@@ -1615,7 +1616,7 @@ async def _apply_prepared(  # noqa: PLR0913 -- the state `_apply_groups` built, 
             # applied, not pruned: a `--prune` that deletes in a scope nobody
             # asked about is a surprise, and `ekn kubeapply --target
             # <dependency> --prune` is right there when you want it.
-            prune=prune and group.unit == target,
+            prune=prune and (target is None or group.unit in split_targets(target)),
             # A seed whose variable is unset is not ours to delete, and nor is
             # a workload this run has scaled to zero. See `SeedPlan.protected`
             # and `enginepause`.
@@ -1650,11 +1651,11 @@ class KubeApply(CachePushCommand, FencedCommand):
 
     target: str | None = opt(
         None,
-        help="Apply only this GitOps target's objects (kubernetes.deploymentUnits). Omit for the full kubernetes.generated set.",
+        help="Apply only these deployment units' objects (kubernetes.deploymentUnits), comma-separated, each after the units it depends on. Omit for the full kubernetes.generated set.",
     )
     prune: bool = opt(
         False,
-        help="Delete previously-applied objects no longer present in this apply. Scoped by label: ekn.dev/environment plus this target's ekn.dev/deployment-unit with --target, otherwise ekn.dev/environment excluding the hand-applied units (deployment.handAppliedUnits). Never deletes an object owned by a controller.",
+        help="Delete previously-applied objects no longer present in this apply. Scoped by label: ekn.dev/environment plus each named target's ekn.dev/deployment-unit with --target, otherwise ekn.dev/environment excluding the hand-applied units (deployment.handAppliedUnits). Never deletes an object owned by a controller.",
     )
     converge: bool = opt(
         False,
@@ -2116,7 +2117,7 @@ class Secrets(FencedCommand):
 
     target: str | None = opt(
         None,
-        help="Only this GitOps target's objects. Omit for the full kubernetes.generated set.",
+        help="Only these deployment units' objects, comma-separated. Omit for the full kubernetes.generated set.",
     )
 
     async def run(self) -> None:
@@ -2174,7 +2175,7 @@ class ClusterDiff(FencedCommand):
 
     target: str | None = opt(
         None,
-        help="Diff only this GitOps target's objects (kubernetes.deploymentUnits). Omit for the full kubernetes.generated set.",
+        help="Diff only these deployment units' objects (kubernetes.deploymentUnits), comma-separated. Omit for the full kubernetes.generated set.",
     )
 
     async def run(self) -> None:
@@ -2243,6 +2244,9 @@ class Reclaim(FencedCommand):
     )
 
     async def run(self) -> None:
+        if len(split_targets(self.target)) > 1:
+            # Ownership moves onto one manager, and each unit may name its own.
+            raise SystemExit("reclaim takes one --target")
         uri, customer = _parse_flake(self.flake) if self.flake is not None else (None, None)
         try:
             cfg = await evaluate_kubeapply_config(self.file, uri, customer, self.attr, self.target)

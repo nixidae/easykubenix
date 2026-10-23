@@ -160,6 +160,7 @@ Two labels decide the scope, not one:
 | --- | --- |
 | `ekn kubeapply --prune` | `ekn.dev/environment=E,ekn.dev/deployment-unit notin (bootstrap,…)` |
 | `ekn kubeapply --target X --prune` | `ekn.dev/environment=E,ekn.dev/deployment-unit=X` |
+| `ekn kubeapply --target X,Y --prune` | the `X` selector for `X`'s objects, then the `Y` one for `Y`'s |
 
 `E` is `ekn.environment`. The excluded units are the hand-applied ones: those
 whose objects never reach `kubernetes.generated`, because each renders a whole

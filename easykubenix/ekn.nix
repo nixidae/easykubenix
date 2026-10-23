@@ -425,8 +425,9 @@ in
         the first argument, and in `EKN_MANIFEST`. It is the objects
         themselves, so a `--target` slice is the slice and a seeded Secret
         carries its resolved value. `EKN_ENVIRONMENT` holds
-        `ekn.environment`, and `EKN_TARGET` the `--target` name or the empty
-        string for a whole-instance apply.
+        `ekn.environment`, and `EKN_TARGET` the `--target` value as given
+        (comma-separated names) or the empty string for a whole-instance
+        apply.
 
         **A non-zero exit always aborts, and there is no flag to soften
         that.** The hook decides what it tolerates; `ekn` tells it what the
