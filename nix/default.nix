@@ -332,6 +332,7 @@ in
 
   shell = pkgs.python3Packages.callPackage ./shell.nix {
     inherit (root.passthru) eknDevEnv;
+    inherit (import sources.nixvenv { inherit pkgs; }) nixvenv;
   };
 
   checks = examples.checks // {
