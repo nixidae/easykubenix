@@ -279,7 +279,27 @@ let
     in
     if unit == null || declared == null then object else stampTargetMetadata declared object;
 
-  allGenerated = map stampRouted (generatedWithEkn ++ checkedCrds);
+  # Grouping by unit reads `routed`: an element of `allGenerated` runs its
+  # checks as soon as it is forced at all.
+  routed = map stampRouted (generatedWithEkn ++ checkedCrds);
+  # Checked here and not in `finalise`, so an instance's checks cover its own
+  # objects: a nested unit's objects reach the parent through its
+  # `generatedWithEkn`, already checked by the nested instance, and the
+  # parent's `finalise` does not check them again.
+  allGenerated = map checkObject routed;
+
+  # `kubernetes.objectChecks`, run when an output forces the object. An
+  # assertion would walk every object of the instance for any output.
+  # Measured on nixlab3: nixkube's two pod checks as assertions were 11s of
+  # an 18s `deploymentUnits.grafana.objects`.
+  checkObject =
+    object:
+    let
+      results = map (check: check object) cfg.objectChecks;
+      errors = lib.concatMap (result: result.errors or [ ]) results;
+      warnings = lib.concatMap (result: result.warnings or [ ]) results;
+    in
+    lib.throwIf (errors != [ ]) (lib.concatStringsSep "\n" errors) (lib.foldr lib.warn object warnings);
 
   # The last thing the render does to an object, and the reason it is one
   # function rather than two lines repeated.
@@ -301,7 +321,7 @@ let
       (lib.zipListsWith (source: object: {
         unit = source.ekn.deploymentUnit or null;
         inherit object;
-      }) allGenerated finalised)
+      }) routed finalised)
       [
         (lib.filter (entry: entry.unit != null))
         (lib.groupBy (entry: entry.unit))
@@ -856,6 +876,32 @@ in
       type = lib.types.listOf (lib.types.functionTo lib.types.bool);
       default = [ ];
       description = "List of functions that filter objects";
+    };
+
+    objectChecks = lib.mkOption {
+      type = lib.types.listOf (lib.types.functionTo lib.types.attrs);
+      default = [ ];
+      description = ''
+        Functions from a rendered object to `{ errors ? [ ]; warnings ? [ ]; }`,
+        lists of messages. An error throws and a warning prints when an
+        output forces the object.
+
+        Use this instead of `assertions` for a check of one object. An
+        assertion walks every object for any output, so `ekn kubeapply
+        --target` would pay for the whole instance. A check here costs only
+        the objects an output holds.
+
+        Not a `transformers` entry: any transformer turns on the deep marker
+        pass over every object, and transformers skip `kubernetes.crds`.
+      '';
+      example = lib.literalExpression ''
+        [
+          (object: {
+            errors = lib.optional (object.kind == "Pod")
+              "''${object.metadata.name}: use a Deployment, not a bare Pod";
+          })
+        ]
+      '';
     };
 
     coerceLabelsAndAnnotations = lib.mkOption {

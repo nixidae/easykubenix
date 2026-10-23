@@ -412,6 +412,80 @@ class TestEknModule:
         with pytest.raises(NixError, match=r"kubernetes\.crds"):
             await evaluate_file(NIX_TEST_FILE, "crdIfExistsMarkerThrows")
 
+    @staticmethod
+    def _object_check_probe(ekn_root: str, output: str) -> str:
+        return f"""
+        let
+          easy = import {ekn_root} {{
+            modules = [{{
+              deployment.units.good.path = "good";
+              deployment.units.bad.path = "bad";
+              kubernetes.objects.default.ConfigMap.fine = {{
+                ekn.deploymentUnit = "good";
+                data.key = "hello";
+              }};
+              kubernetes.objects.default.ConfigMap.broken = {{
+                ekn.deploymentUnit = "bad";
+                data.key = "";
+              }};
+              kubernetes.objectChecks = [
+                (object: {{
+                  errors = if (object.data.key or null) == "" then [ "''${{object.metadata.name}}: empty key" ] else [ ];
+                }})
+              ];
+            }}];
+          }};
+        in
+        easy.config.kubernetes.{output}
+        """
+
+    async def test_an_object_check_refuses_the_object(self, ekn_root: str) -> None:
+        async with evaluator() as eval_:
+            root = await eval_.expr(self._object_check_probe(ekn_root, "generated"))
+            with pytest.raises(NixError, match="broken: empty key"):
+                await root.to_python()
+
+    async def test_an_object_check_skips_an_output_without_the_object(self, ekn_root: str) -> None:
+        # The point of a check over an assertion: a unit that does not hold
+        # the object never runs the check on it.
+        async with evaluator() as eval_:
+            root = await eval_.expr(self._object_check_probe(ekn_root, "deploymentUnits.good.objects"))
+            result = await root.to_python()
+        assert isinstance(result, list)
+        assert [obj["metadata"]["name"] for obj in result] == ["fine"]
+
+    async def test_one_unit_never_forces_another_units_objects(self, ekn_root: str) -> None:
+        # What makes `--target` fast. Anything that forces another unit's
+        # object -- a strict filter, a grouping over checked objects, a marker
+        # that validates its entries -- reaches the throw.
+        nix = f"""
+        let
+          easy = import {ekn_root} {{
+            modules = [({{ lib, ... }}: {{
+              deployment.units.good.path = "good";
+              deployment.units.bad.path = "bad";
+              kubernetes.objects.default.ConfigMap.fine = {{
+                ekn.deploymentUnit = "good";
+                data.key = "hello";
+              }};
+              kubernetes.objects.default.Deployment.other = {{
+                ekn.deploymentUnit = "bad";
+                spec.template.spec.containers = lib.mkNamedList {{
+                  app.env = lib.mkNamedList {{ X.value = throw "forced another unit"; }};
+                }};
+              }};
+              # Reads the whole object, so a check run on `other` throws.
+              kubernetes.objectChecks = [ (object: {{ errors = lib.optional (builtins.toJSON object == "") "x"; }}) ];
+            }})];
+          }};
+        in
+        easy.config.kubernetes.deploymentUnits.good.objects
+        """
+        async with evaluator() as eval_:
+            result = await (await eval_.expr(nix)).to_python()
+        assert isinstance(result, list)
+        assert [obj["metadata"]["name"] for obj in result] == ["fine"]
+
     async def test_generated_by_path(self, ekn_root: str) -> None:
         nix = f"""
         let
