@@ -475,7 +475,6 @@ in
     inherit (nanopynix)
       nanopynix
       huggorm-bindings
-      nanopynix-helpers
       ;
     inherit
       sources

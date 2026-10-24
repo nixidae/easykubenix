@@ -566,7 +566,7 @@ async def evaluate_with_fod_update(
     """Like `evaluate_file`/`evaluate_flake`, but auto-patch one fixed-output
     hash on mismatch and retry, up to `max_updates` times.
 
-    Unlike `nanopynix_helpers.build.build_with_fod_update` (built around
+    Unlike pynix's `--update-fod` loop (built around
     building one explicit derivation attr and verifying the mismatch belongs
     to that attr's closure), this forces an arbitrary JSON value -- e.g.
     kubenix's `kubernetes.crds`, which reads file content from several
@@ -593,7 +593,7 @@ async def evaluate_with_fod_update(
             # ("Cannot build X, 1 dependency failed") when the mismatch
             # happened on a dependency FOD rather than the top-level target
             # -- the real two-line diagnostic instead arrives as a captured
-            # log event, same as nanopynix_helpers.build.build_with_fod_update.
+            # log event, same as pynix's `--update-fod` loop.
             mismatch = extract_fod_hash_mismatch(str(error))
             if mismatch is None:
                 mismatch = extract_unique_fod_hash_mismatch(nix.captured_messages(logs))
