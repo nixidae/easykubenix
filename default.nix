@@ -26,7 +26,7 @@ let
   nanopynix = import sources.nanopynix { inherit pkgs sources; };
   adios = (import sources.adios).adios;
   template = definition: adios definition { };
-  inherit (import sources.nixvenv { inherit pkgs; }) nixvenv;
+  inherit (import sources.nixvenv { inherit pkgs sources; }) nixvenv ps;
   easykubenix-docs = pkgs.python3Packages.callPackage ./nix/docs.nix { inherit nixvenv; };
 
   # The `ekn` CLI, built from this repository's own `ekn/` source, which is
@@ -41,7 +41,7 @@ let
   # `ekn` of its own any more, so `kr8s` -- which nothing else declares -- is
   # not in its closure, and an overlay cannot put it there: a set lifts its
   # nixpkgs packages once, from the roots it was seeded with, and the lifting
-  # machinery is private to nanopynix' nix/python-set.nix. Passing `./ekn` as
+  # machinery is private to nixvenv's python-set.nix. Passing `./ekn` as
   # a project root is what gets ekn's own dependencies resolved alongside
   # nanopynix' -- `overrideScope` here fails with `attribute 'kr8s' missing`.
   #
@@ -71,7 +71,7 @@ let
       kappyRoot
     ];
     overlay = pySelf: _pyPrev: {
-      kappy = pySelf.callPackage (nanopynix.ps.mkProject {
+      kappy = pySelf.callPackage (ps.mkProject {
         projectRoot = kappyRoot;
         inherit (nanopynix.pythonSet) python;
         extra = rendered: {
@@ -80,7 +80,7 @@ let
           };
         };
       }) { };
-      ekn = pySelf.callPackage (nanopynix.ps.mkProject {
+      ekn = pySelf.callPackage (ps.mkProject {
         projectRoot = ./ekn;
         inherit (nanopynix.pythonSet) python;
         # No `+nix<version>` local version segment, unlike nanopynix' own
