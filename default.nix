@@ -7,6 +7,9 @@
     inherit system;
     config.allowUnfree = true;
   },
+  # The nanopynix lane `ekn` evaluates with: a key of
+  # `nanopynix.nanopynixVersions`, such as `determinate` for Determinate Nix.
+  nixLane ? "stable",
   modules ? [ ./demo ],
   specialArgs ? { },
   debug ? null, # unused but kept for API compatibility
@@ -24,6 +27,7 @@ let
   # published one, and the nanopynix built here would not be the one the
   # umbrella wired.
   nanopynix = import sources.nanopynix { inherit pkgs sources; };
+  lane = nanopynix.nanopynixVersions.${nixLane};
   adios = (import sources.adios).adios;
   template = definition: adios definition { };
   inherit (import sources.nixvenv { inherit pkgs sources; }) nixvenv ps;
@@ -65,7 +69,7 @@ let
         path: _type: path == root || path == "${root}/kappy" || lib.hasPrefix "${root}/kappy/" path;
     }
     + "/kappy";
-  eknPythonSet = nanopynix.pythonSetWith {
+  eknPythonSet = lane.pythonSetWith {
     projectRoots = [
       ./ekn
       kappyRoot
@@ -73,7 +77,7 @@ let
     overlay = pySelf: _pyPrev: {
       kappy = pySelf.callPackage (ps.mkProject {
         projectRoot = kappyRoot;
-        inherit (nanopynix.pythonSet) python;
+        inherit (lane.pythonSet) python;
         extra = rendered: {
           meta = rendered.meta // {
             platforms = lib.platforms.unix;
@@ -82,7 +86,7 @@ let
       }) { };
       ekn = pySelf.callPackage (ps.mkProject {
         projectRoot = ./ekn;
-        inherit (nanopynix.pythonSet) python;
+        inherit (lane.pythonSet) python;
         # No `+nix<version>` local version segment, unlike nanopynix' own
         # projects. That segment tells apart the same source built against
         # each supported Nix version; this repository has exactly one
@@ -472,10 +476,8 @@ in
     # `grpclib-transports` was here too, but nanopynix vendors that project
     # now (it is no longer a flake input) and stopped exposing it as a
     # top-level attribute, so the passthru entry would throw when forced.
-    inherit (nanopynix)
-      nanopynix
-      huggorm-bindings
-      ;
+    inherit (nanopynix) nanopynix;
+    inherit (lane) huggorm-bindings;
     inherit
       sources
       pkgs
