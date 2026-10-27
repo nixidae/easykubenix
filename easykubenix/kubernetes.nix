@@ -311,7 +311,22 @@ let
   #
   # The hash is then of the object exactly as it is applied, so nothing may
   # change an object after this. See lib/manifestHash.nix.
-  finalise = object: lib.stampManifestHash (removeAttrs object [ "ekn" ]);
+  finalise = object: lib.stampManifestHash (removeAttrs (withAfter object) [ "ekn" ]);
+
+  # `ekn.after` is the one EKN field the apply has to read, so it survives
+  # the strip as the annotation kappy's converging apply holds an object on
+  # (`kappy.dev/after`, kappy/converge.py).
+  withAfter =
+    object:
+    let
+      after = object.ekn.after or [ ];
+    in
+    if after == [ ] then
+      object
+    else
+      lib.recursiveUpdate object {
+        metadata.annotations."kappy.dev/after" = builtins.toJSON after;
+      };
 
   # `generated` and `deploymentUnits` share these thunks, so a routed object
   # is finalised once, and both outputs carry the same hash by construction.
@@ -681,6 +696,40 @@ in
                                     object belongs to survives to the cluster whatever
                                     applies it. The copy in `kubernetes.generated` is
                                     unstamped, as it is for every other per-unit label.
+                                  '';
+                                };
+                                after = lib.mkOption {
+                                  type = lib.types.listOf (
+                                    lib.types.submodule {
+                                      options = {
+                                        apiVersion = lib.mkOption { type = lib.types.str; };
+                                        kind = lib.mkOption { type = lib.types.str; };
+                                        namespace = lib.mkOption {
+                                          type = lib.types.nullOr lib.types.str;
+                                          default = null;
+                                          description = "Null for a cluster-scoped object.";
+                                        };
+                                        name = lib.mkOption { type = lib.types.str; };
+                                      };
+                                    }
+                                  );
+                                  default = [ ];
+                                  description = ''
+                                    Objects that must exist before `ekn kubeapply --converge`
+                                    creates this one. Rendered as the `kappy.dev/after`
+                                    annotation; the converging apply holds the object, without
+                                    sending it, until each exists, for up to `--wait-seconds`.
+
+                                    For what the API server accepts and a controller then
+                                    abandons: a CloudNativePG Cluster created before its
+                                    managed role's password Secret records the role as
+                                    unreconcilable and never retries it. A dependency may be
+                                    something no render contains, such as a Secret a
+                                    controller writes.
+
+                                    Creation only: an object that already exists is applied
+                                    whatever its dependencies are doing. The barrier apply and
+                                    the validation harness ignore it.
                                   '';
                                 };
                                 novalidate = lib.mkOption {

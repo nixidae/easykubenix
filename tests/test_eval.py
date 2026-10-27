@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 from typing import Any, cast
 
@@ -680,7 +681,22 @@ class TestRenamedOptionAliases:
         assert isinstance(result, list)
         assert result, "fixture rendered no objects, so this asserts nothing"
         for keys in result:
-            assert keys == ["deploymentUnit", "novalidate"]
+            assert keys == ["after", "deploymentUnit", "novalidate"]
+
+
+class TestAfter:
+    """`ekn.after` reaches the apply as kappy's annotation, and only there."""
+
+    async def test_it_renders_as_the_annotation_and_the_ekn_field_goes(self) -> None:
+        result = await evaluate_file(NIX_TEST_FILE, "afterRenders")
+        assert isinstance(result, list)
+        by_name = {obj["metadata"]["name"]: obj for obj in result}
+        gated = by_name["gated"]
+        assert "ekn" not in gated
+        assert json.loads(gated["metadata"]["annotations"]["kappy.dev/after"]) == [
+            {"apiVersion": "v1", "kind": "Secret", "namespace": "postgres", "name": "keycloak-pg-app"},
+        ]
+        assert "kappy.dev/after" not in by_name["ungated"]["metadata"].get("annotations", {})
 
 
 class TestGitOpsTargetMetadata:

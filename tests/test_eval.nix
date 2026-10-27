@@ -17,6 +17,25 @@ let
       })
     ];
   };
+  easyAfter = import ../. {
+    inherit pkgs;
+    modules = [
+      {
+        kubernetes.objects.postgres.ConfigMap.gated = {
+          ekn.after = [
+            {
+              apiVersion = "v1";
+              kind = "Secret";
+              namespace = "postgres";
+              name = "keycloak-pg-app";
+            }
+          ];
+          data.key = "value";
+        };
+        kubernetes.objects.postgres.ConfigMap.ungated.data.key = "value";
+      }
+    ];
+  };
   easyCoercion = import ../. {
     inherit pkgs;
     modules = [
@@ -968,6 +987,8 @@ in
   # alias is still a declared option, so without a strip it rides along on
   # every object -- and, while the alias warned on read, printed a deprecation
   # notice for a configuration that never wrote the old name.
+  afterRenders = easyAfter.config.kubernetes.generated;
+
   eknSidecarKeys = map (
     object: builtins.attrNames object.ekn
   ) easy.config.kubernetes.generatedWithEkn;

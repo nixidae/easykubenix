@@ -21,7 +21,7 @@ import structlog
 from anyio import Path
 from huggorm.errors import NixError
 from huggorm.jsonprimop import JsonValue
-from kappy.converge import DEFAULT_CONCURRENCY, DEFAULT_SETTLE_SECONDS
+from kappy.converge import DEFAULT_CONCURRENCY, DEFAULT_SETTLE_SECONDS, DEFAULT_WAIT_SECONDS
 from kappy.directapply import report_failures
 from pydantic import TypeAdapter, ValidationError
 
@@ -1216,6 +1216,7 @@ class _ConvergeOptions:
     enabled: bool = False
     concurrency: int = DEFAULT_CONCURRENCY
     settle_seconds: float = DEFAULT_SETTLE_SECONDS
+    wait_seconds: float = DEFAULT_WAIT_SECONDS
     allow_recreate: bool = False
 
 
@@ -1251,6 +1252,7 @@ async def _converge_group(  # noqa: PLR0913 -- the same state `apply_and_prune` 
         field_manager=group.field_manager,
         concurrency=options.concurrency,
         settle_seconds=options.settle_seconds,
+        wait_seconds=options.wait_seconds,
         allow_recreate=options.allow_recreate,
         unit_managers=unit_managers,
         cache=cache,
@@ -1673,6 +1675,12 @@ class KubeApply(UnitTargets, CachePushCommand, FencedCommand):
         help="How long --converge keeps retrying with no object making progress before it gives up. "
         f"Default {DEFAULT_SETTLE_SECONDS:.0f}.",
     )
+    wait_seconds: float = opt(
+        DEFAULT_WAIT_SECONDS,
+        help="How long --converge holds an object whose ekn.after dependencies do not exist yet, from the first "
+        "wait, before it gives up and names what never appeared. The settle window does not apply while "
+        f"objects wait. Default {DEFAULT_WAIT_SECONDS:.0f}.",
+    )
     allow_recreate: bool = opt(
         False,
         help="Let --converge delete and re-create an object whose immutable field changed (a completed Job's "
@@ -1856,6 +1864,7 @@ class KubeApply(UnitTargets, CachePushCommand, FencedCommand):
                         enabled=self.converge,
                         concurrency=self.concurrency,
                         settle_seconds=self.settle_seconds,
+                        wait_seconds=self.wait_seconds,
                         allow_recreate=self.allow_recreate,
                     ),
                     assume_unchanged=self.assume_unchanged,
