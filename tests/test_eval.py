@@ -1422,6 +1422,19 @@ class TestValidationConfig:
         ordinary = [priority for kind, priority in c.ekn.resource_priority.items() if kind not in intercepting]
         assert max(ordinary) < DEFAULT_BARRIER_PRIORITY
         assert all(c.ekn.resource_priority[kind] > DEFAULT_BARRIER_PRIORITY for kind in intercepting)
+
+        # The in-apiserver policies are the opposite case: no backend, so
+        # they land before anything they admit, and a binding after its
+        # policy. Unlisted, they sorted at DEFAULT_BARRIER_PRIORITY, after
+        # every Deployment, and a first apply's pods went unmutated.
+        priority = c.ekn.resource_priority
+        pod_creating = ["Pod", "DaemonSet", "Deployment", "StatefulSet", "Job", "CronJob", "ReplicaSet"]
+        for policy, binding in [
+            ("ValidatingAdmissionPolicy", "ValidatingAdmissionPolicyBinding"),
+            ("MutatingAdmissionPolicy", "MutatingAdmissionPolicyBinding"),
+        ]:
+            assert priority["CustomResourceDefinition"] < priority[policy] < priority[binding]
+            assert all(priority[binding] < priority[kind] for kind in pod_creating)
         assert c.ekn.environment
         assert c.internal.manifest_json_file.out_path.startswith("/nix/store/")
 

@@ -89,6 +89,18 @@ let
       APIService = 1010;
       MutatingWebhookConfiguration = 1020;
       ValidatingWebhookConfiguration = 1030;
+    }
+    # The opposite case, and absent from Helm's list. An admission policy runs
+    # inside the API server and needs no backend, so it is enforced the moment
+    # it exists; unlisted, it sorted at 1000, after every pod-creating kind,
+    # and the first apply's pods were admitted before it. Right after CRDs,
+    # which a policy's `paramKind` may name, and each binding a step after the
+    # policy it names.
+    // {
+      ValidatingAdmissionPolicy = 152;
+      MutatingAdmissionPolicy = 152;
+      ValidatingAdmissionPolicyBinding = 154;
+      MutatingAdmissionPolicyBinding = 154;
     };
 in
 {
@@ -226,6 +238,12 @@ in
         custom resource they intercept; during a bootstrap their backing
         workload was applied seconds earlier and is not serving yet, so each
         intercepted request costs a full timeout or fails discovery outright.
+
+        The four in-apiserver admission kinds deviate the other way:
+        `ValidatingAdmissionPolicy`, `MutatingAdmissionPolicy` and their
+        bindings sit right after `CustomResourceDefinition`. They need no
+        backend, so they apply before every object they admit, and a pod of
+        the same apply is mutated and validated like any later one.
 
         Definitions merge per key, so setting one kind keeps the defaults for
         every other. Replacing the set wholesale takes `lib.mkForce`.
