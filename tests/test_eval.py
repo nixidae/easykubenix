@@ -555,8 +555,23 @@ class TestRoot:
             await evaluate_file(NIX_TEST_FILE, "rootTwoClassesThrows")
 
     async def test_a_unit_keeps_its_class_guard(self) -> None:
-        with pytest.raises(NixError, match=r'class: "nixos"\) cannot be imported into a module evaluation that expects class "tf"'):
+        with pytest.raises(
+            NixError, match=r'class: "nixos"\) cannot be imported into a module evaluation that expects class "tf"'
+        ):
             await evaluate_file(NIX_TEST_FILE, "rootClassGuardThrows")
+
+    async def test_ekn_takes_a_roots_one_cluster(self) -> None:
+        # `ekn kubeapply --attr <root>` keeps working: the root's one
+        # Kubernetes unit is the cluster.
+        generated, _ = await evaluate_generated_with_spec(
+            Instance(NIX_TEST_FILE, attr_path="rootConfig"), with_spec=False
+        )
+        assert isinstance(generated, list)
+        assert [o["metadata"]["name"] for o in generated] == ["day2"]
+
+    async def test_ekn_refuses_to_guess_between_clusters(self) -> None:
+        with pytest.raises(ValueError, match=r"cluster, other.*name one with --attr"):
+            await evaluate_generated_with_spec(Instance(NIX_TEST_FILE, attr_path="rootTwoClusters"), with_spec=False)
 
     async def test_a_tofu_unit_runs_the_roots_assertions(self) -> None:
         with pytest.raises(NixError, match=r"the root's own check"):

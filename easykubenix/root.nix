@@ -154,6 +154,11 @@ in
           root, behind this root's assertions.
         '';
       };
+      kubernetesUnits = mkOption {
+        type = types.listOf types.str;
+        readOnly = true;
+        description = "The Kubernetes units' names: what `ekn` takes as this root's cluster.";
+      };
       nixosUnits = mkOption {
         type = types.anything;
         readOnly = true;
@@ -191,6 +196,8 @@ in
         tofu = "${tofu.wrappedPackage}/bin/tofu";
       }
     ) (ofClass "tofu");
+
+    deployment.kubernetesUnits = lib.attrNames (ofClass "kubernetes");
 
     deployment.nixosUnits = lib.mapAttrs (name: unit: {
       inherit name;

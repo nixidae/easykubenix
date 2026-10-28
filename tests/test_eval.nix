@@ -913,8 +913,12 @@ let
                   { root, ... }:
                   {
                     ekn.environment = "easykubenix";
-                    kubernetes.objects.tofu-operator.ConfigMap.day2.data.configFile =
-                      "${root.units.day2.tofu.tofu.configFile}";
+                    # Ships the root's tofu unit: the annotation check has to
+                    # know the root's units.
+                    kubernetes.objects.tofu-operator.ConfigMap.day2 = {
+                      metadata.annotations."ekn.dev/tofu-units" = "day2";
+                      data.configFile = "${root.units.day2.tofu.tofu.configFile}";
+                    };
                   };
                 cp1.nixos = config.generators.fleet {
                   name = "cp1";
@@ -1069,6 +1073,8 @@ in
         toplevelIsStorePath = pkgs.lib.hasPrefix builtins.storeDir root.deployment.nixosUnits.cp1.toplevel;
       };
     };
+  rootConfig = rootEnv [ ];
+  rootTwoClusters = rootEnv [ { units.other.kubernetes.ekn.environment = "other"; } ];
   rootTwoClassesThrows =
     (rootEnv [ { units.day2.nixos = (rootEnv [ ]).units.cp1.nixos; } ])
     .deployment.tofuUnits.day2.configFile;

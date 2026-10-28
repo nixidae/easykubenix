@@ -531,6 +531,32 @@ async def _resolve_proxy(eval_: nix.Evaluator, instance: Instance) -> nix.Value:
     return proxy
 
 
+async def _root_and_cluster(proxy: nix.Value) -> tuple[nix.Value | None, nix.Value]:
+    """The configuration `proxy` names, as `(root, cluster)`.
+
+    An easykubenix root (`class = "root"`, easykubenix/root.nix) holds its
+    clusters as units. With one, that unit is the cluster; with several,
+    `--attr` names the unit (`...units.<name>.kubernetes`). Anything else is
+    a cluster with no root.
+    """
+    if await proxy.has_attr("config"):
+        proxy = proxy.attr("config")
+    if await proxy.has_attr("kubernetes") or not await proxy.has_attr("units"):
+        return None, proxy
+    names = await proxy.attr("deployment").attr("kubernetesUnits").to_python()
+    if not isinstance(names, list) or len(names) != 1:
+        found = ", ".join(str(name) for name in names) if isinstance(names, list) else "?"
+        raise ValueError(
+            f"this root holds {found or 'no'} Kubernetes units; name one with --attr <root>.config.units.<name>.kubernetes"
+        )
+    return proxy, proxy.attr("units").attr(str(names[0])).attr("kubernetes")
+
+
+async def _kubernetes_config(proxy: nix.Value) -> nix.Value:
+    """The cluster `proxy` names: itself, or a root's one Kubernetes unit."""
+    return (await _root_and_cluster(proxy))[1]
+
+
 async def evaluate_file(file: str | PathLike[str], attr_path: str | None) -> object:
     async with _evaluator() as eval_:
         root = await eval_.file(str(file))
@@ -627,8 +653,7 @@ async def evaluate_flake(flake_uri: str, attr_path: str | None) -> object:
 async def evaluate_flake_ekn(flake_uri: str, customer: str) -> FlakeEknResult:
     async with _evaluator() as eval_:
         proxy = await _resolve_proxy(eval_, Instance(flake_uri=flake_uri, customer=customer))
-        if await proxy.has_attr("config"):
-            proxy = proxy.attr("config")
+        proxy = await _kubernetes_config(proxy)
 
         generated = await proxy.attr("kubernetes").attr("generated").to_python()
         return FlakeEknResult.model_validate(
@@ -690,8 +715,7 @@ async def evaluate_generated_with_spec(
         _log_timing("session/store/eval-session setup", t_session_ready - t_start)
 
         proxy = await _resolve_proxy(eval_, instance)
-        if await proxy.has_attr("config"):
-            proxy = proxy.attr("config")
+        proxy = await _kubernetes_config(proxy)
 
         t_before_force = time.monotonic()
         if targets:
@@ -723,8 +747,7 @@ async def evaluate_gitops_manifests(
     """
     async with _evaluator() as eval_:
         proxy = await _resolve_proxy(eval_, instance)
-        if await proxy.has_attr("config"):
-            proxy = proxy.attr("config")
+        root, proxy = await _root_and_cluster(proxy)
 
         ekn_opts = proxy.attr("ekn")
         assert_cached = (
@@ -732,11 +755,13 @@ async def evaluate_gitops_manifests(
         )
 
         gitops_proxy = proxy.attr("deployment")
+        # A root's tofu units are the root's, not the cluster's.
+        tofu_proxy = (root if root is not None else proxy).attr("deployment")
         with timed_stage("gitops: to_python(kubernetes.deploymentUnits, deployment.deployBranch/sourceBranch)"):
             gitops_targets = await proxy.attr("kubernetes").attr("deploymentUnits").to_python()
             deploy_branch = await gitops_proxy.attr("deployBranch").to_python()
             source_branch = await gitops_proxy.attr("sourceBranch").to_python()
-            tofu_units = await gitops_proxy.attr("tofuUnits").to_python()
+            tofu_units = await tofu_proxy.attr("tofuUnits").to_python()
         if not isinstance(tofu_units, dict):
             raise TypeError("deployment.tofuUnits did not evaluate to an object")
 
@@ -748,7 +773,7 @@ async def evaluate_gitops_manifests(
         if tofu_units:
             with timed_stage("gitops: realise(deployment.tofuUnits.*.configFile)"):
                 for name in tofu_units:
-                    await gitops_proxy.attr("tofuUnits").attr(name).attr("configFile").realise_string()
+                    await tofu_proxy.attr("tofuUnits").attr(name).attr("configFile").realise_string()
 
         return GitOpsManifestsResult.model_validate(
             {
@@ -1010,8 +1035,7 @@ async def evaluate_kubeapply_config(
     """
     async with _evaluator() as eval_:
         proxy = await _resolve_proxy(eval_, instance)
-        if await proxy.has_attr("config"):
-            proxy = proxy.attr("config")
+        proxy = await _kubernetes_config(proxy)
 
         environment = await proxy.attr("ekn").attr("environment").to_python()
 
@@ -1141,8 +1165,7 @@ async def evaluate_cache_config(
     """
     async with _evaluator() as eval_:
         proxy = await _resolve_proxy(eval_, instance)
-        if await proxy.has_attr("config"):
-            proxy = proxy.attr("config")
+        proxy = await _kubernetes_config(proxy)
 
         declared = await proxy.attr("ekn").attr("cacheTo").to_python()
         if declared is None:
@@ -1466,8 +1489,7 @@ async def push_closure_to_store(  # noqa: PLR0913 -- tracked complexity/arg-coun
 
 
 async def _validation_config(proxy: Any) -> ValidationResult:
-    if await proxy.has_attr("config"):
-        proxy = proxy.attr("config")
+    proxy = await _kubernetes_config(proxy)
 
     # Deliberately does not force kubernetes.generated/generatedByPath/
     # deploymentUnits: Validate.run() applies manifests via
@@ -1567,8 +1589,7 @@ async def evaluate_schemacheck_config(
 ) -> SchemaCheckConfig:
     async with _evaluator() as eval_:
         proxy = await _resolve_proxy(eval_, instance)
-        if await proxy.has_attr("config"):
-            proxy = proxy.attr("config")
+        proxy = await _kubernetes_config(proxy)
         ekn_opts = proxy.attr("ekn")
         cluster_uid = await ekn_opts.attr("clusterUid").to_python() if await ekn_opts.has_attr("clusterUid") else None
         with timed_stage("schemacheck: build internal.manifestJSONFile (forces kubernetes.generated)"):
