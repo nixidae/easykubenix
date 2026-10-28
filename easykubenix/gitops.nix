@@ -5,6 +5,8 @@
   ...
 }:
 let
+  checked = lib.asserts.checkAssertWarn config.assertions config.warnings;
+
   # Every unit one unit needs on the cluster, transitively, itself excluded.
   #
   # Deepest first, and deduplicated keeping the first occurrence -- so a unit
@@ -667,7 +669,11 @@ in
     # Store paths, which is all that survives the trip to `ekn`. Neither has
     # been built at evaluation time; `ekn tofu` realises both before it runs
     # anything. See `outPath` handling in ekn/src/ekn/eval.py.
-    configFile = "${unit.instance.config.tofu.configFile}";
+    #
+    # Behind this instance's own assertions, because this is the entry
+    # `ekn tofu` reads: without them a unit renders from a configuration
+    # whose checks fail, and nothing on that path would say so.
+    configFile = checked "${unit.instance.config.tofu.configFile}";
     # What `ekn tofu` checks `configFile` against before it runs `tofu`.
     jsonSchema = "${unit.instance.config.tofu.jsonSchema}";
     tofu = "${unit.instance.config.tofu.wrappedPackage}/bin/tofu";
