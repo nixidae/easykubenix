@@ -484,10 +484,6 @@ in
   # `.github/workflows/easykubenix-<name>.yml`.
   ciTestWorkflows.tests = import ./ci/workflows/tests.nix;
   passthru = {
-    # `grpclib-transports` was here too, but nanopynix vendors that project
-    # now (it is no longer a flake input) and stopped exposing it as a
-    # top-level attribute, so the passthru entry would throw when forced.
-    inherit (nanopynix) nanopynix;
     inherit (lane) huggorm-bindings;
     inherit
       sources

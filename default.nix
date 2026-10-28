@@ -52,7 +52,6 @@ else
         lanes
         eknDevEnv
         nixvenv
-        nanopynix
         huggorm-bindings
         ;
     };

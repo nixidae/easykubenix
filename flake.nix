@@ -63,7 +63,7 @@
     in
     {
       packages = forEachSystem (system: {
-        inherit (each.${system}.internal) nanopynix huggorm-bindings;
+        inherit (each.${system}.internal) huggorm-bindings;
         easykubenix-docs = each.${system}.docs.default;
         # This repository's own build of the CLI, from `ekn/`. See
         # `eknCli` in default.nix.
