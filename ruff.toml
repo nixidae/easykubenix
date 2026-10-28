@@ -1,36 +1,6 @@
-# The anyio banned-api table, shared with `ruff-strict.toml`. Settings only,
-# so this file's own rule list below is untouched.
-extend = "ruff-anyio.toml"
-
-target-version = "py313"
-line-length = 120
-
-[lint]
-select = [
-    "E", "W",
-    "F",
-    "I",
-    # The `banned-api` table `extend` brings in reports under this rule, and
-    # nothing else here selects it. `TID251` alone, not `TID`: `TID252` bans
-    # the relative imports `ekn` uses, which `ruff-strict.toml` ignores by
-    # name.
-    "TID251",
-]
-
-ignore = [
-    "E501",
-]
+extend = "nix/shared/ruff-anyio.toml"
 
 [lint.isort]
-# `ekn` alone. `nanopynix` was first-party here too while `ekn` imported
-# `nanopynix._typechecking` -- reaching into another package's private module
-# makes the two read as one codebase, and nanopynix' own ruff config groups
-# them that way. `ekn` no longer imports anything private from it, so it is an
-# ordinary declared dependency (ekn/pyproject.toml) and belongs with the rest
-# of the third-party imports.
-#
-# `combine-as-imports` keeps `from ekn.gitops import (X, branches as Y, ...)` as
-# the one statement it is written as, rather than splitting the aliased names
-# into a statement each.
-combine-as-imports = true
+# `ekn` alone. `nanopynix` is an ordinary declared dependency
+# (ekn/pyproject.toml), so it sorts with the third-party imports.
 known-first-party = ["ekn"]

@@ -155,7 +155,7 @@ what to inspect next, then query `/tmp/pytest.log` for the full failure context.
 - Concurrency goes through `anyio`, not `asyncio`: `anyio.run_process` and
   `anyio.open_process`, `anyio.sleep`, `anyio.Lock`, `anyio.Event`,
   `anyio.fail_after`/`move_on_after`, `anyio.to_thread.run_sync(...,
-  abandon_on_cancel=True)`, `anyio.get_cancelled_exc_class()`. `ruff-anyio.toml`
+  abandon_on_cancel=True)`, `anyio.get_cancelled_exc_class()`. `nix/shared/ruff-anyio.toml`
   bans each replaced name and says what to use. `kr8s.asyncio` is a module path
   and not one of them.
 - Background work belongs to a task group. There is no detached task to keep a

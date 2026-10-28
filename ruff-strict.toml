@@ -1,6 +1,6 @@
-# The anyio banned-api table, shared with `ruff.toml`. `TID` below is what
-# reports it.
-extend = "ruff-anyio.toml"
+# The anyio banned-api table, shared with `ruff.toml`. `select` below replaces
+# the base's rule list, and its `TID` reports the table.
+extend = "nix/shared/ruff-anyio.toml"
 
 target-version = "py313"
 line-length = 120
@@ -89,9 +89,7 @@ runtime-evaluated-base-classes = ["pydantic.BaseModel"]
 "tests/**" = ["PLR0913"]
 
 [lint.isort]
-# See ruff.toml for why `nanopynix` is not first-party here, and for
-# `combine-as-imports`.
-combine-as-imports = true
+# See ruff.toml for why `nanopynix` is not first-party here.
 known-first-party = ["ekn"]
 
 [format]
