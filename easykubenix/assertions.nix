@@ -1,5 +1,8 @@
 { lib, ... }:
 {
+  # The environment root an instance is a unit of (root.nix passes it);
+  # null for an instance evaluated on its own.
+  config._module.args.root = lib.mkDefault null;
 
   options = {
 
