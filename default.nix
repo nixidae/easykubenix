@@ -48,7 +48,13 @@ else
 
     # Not public: the names may change without notice.
     internal = outputs // {
-      inherit (demo.passthru) lanes eknDevEnv nixvenv;
+      inherit (demo.passthru)
+        lanes
+        eknDevEnv
+        nixvenv
+        nanopynix
+        huggorm-bindings
+        ;
     };
 
     # nix/members.nix, the root, flake.nix and nix/default.nix read it.

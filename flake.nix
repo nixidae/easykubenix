@@ -63,27 +63,17 @@
     in
     {
       packages = forEachSystem (system: {
-        inherit (each.${system}.passthru)
-          nanopynix
-          huggorm-bindings
-          easykubenix-docs
-          # This repository's own build of the CLI, from `ekn/`. See
-          # `eknCli` in default.nix.
-          ekn
-          ;
-        default = each.${system}.passthru.ekn;
+        inherit (each.${system}.internal) nanopynix huggorm-bindings;
+        easykubenix-docs = each.${system}.docs.default;
+        # This repository's own build of the CLI, from `ekn/`. See
+        # `eknCli` in default.nix.
+        inherit (each.${system}.packages) ekn default;
       });
 
       # Re-exported, not defined here. These are plain derivations built by
       # `nix build --file ./checks.nix all`, so the gates need no flake
       # command -- see nix/default.nix and docs/examples/default.nix.
-      checks = forEachSystem (
-        system:
-        (import ./nix {
-          inherit sources system;
-          pkgs = pkgsFor system;
-        }).checks
-      );
+      checks = forEachSystem (system: each.${system}.checks);
 
       # The entry point itself, which is how a consumer evaluates a
       # configuration of their own.
@@ -97,7 +87,7 @@
         {
           default = pkgs.python3Packages.callPackage ./nix/shell.nix {
             inherit (pkgs) ruff;
-            inherit (each.${system}.passthru) eknDevEnv nixvenv;
+            inherit (each.${system}.internal) eknDevEnv nixvenv;
           };
         }
       );
