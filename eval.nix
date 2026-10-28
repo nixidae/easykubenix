@@ -1,0 +1,505 @@
+{
+  # Where every dependency lives, as directories. nix/sources.nix says how
+  # this repository finds the umbrella that owns them.
+  sources ? import ./nix/sources.nix,
+  system ? builtins.currentSystem,
+  pkgs ? import sources.nixpkgs {
+    inherit system;
+    config.allowUnfree = true;
+  },
+  # The nanopynix lane `ekn` evaluates with: a key of
+  # `nanopynix.nanopynixVersions`, such as `determinate` for Determinate Nix.
+  nixLane ? "stable",
+  modules ? [ ./demo ],
+  specialArgs ? { },
+  debug ? null, # unused but kept for API compatibility
+}:
+let
+  pkgs' = pkgs.extend (import ./easykubenix/pkgs/default.nix);
+in
+let
+  pkgs = pkgs';
+  inherit (pkgs) lib;
+
+  # Hand nanopynix the same sources, rather than letting it ask for an
+  # umbrella of its own. From a working copy in the umbrella it would find
+  # the right one; from a store path it would find none and fetch the
+  # published one, and the nanopynix built here would not be the one the
+  # umbrella wired.
+  nanopynix = import sources.nanopynix { inherit pkgs sources; };
+  lane = nanopynix.nanopynixVersions.${nixLane};
+  inherit ((import sources.adios)) adios;
+  template = definition: adios definition { };
+  inherit (import sources.nixvenv { inherit pkgs sources; }) nixvenv ps;
+  easykubenix-docs = pkgs.python3Packages.callPackage ./nix/docs.nix { inherit nixvenv; };
+
+  # The `ekn` CLI, built from this repository's own `ekn/` source, which is
+  # the only copy of it. `ekn` reads a fixed Nix-to-JSON schema that the
+  # modules below produce -- `ekn.eval`'s pydantic models track
+  # `kubernetes.nix`, `ekn.gitops` tracks `gitops.nix`, `ekn.validation`
+  # tracks `validation.nix` -- so a module change needs a matching `ekn`
+  # change, and owning both makes that one commit rather than two
+  # repositories and a pin bump between them.
+  #
+  # `pythonSetWith` and not `pythonSet.overrideScope`. nanopynix builds no
+  # `ekn` of its own any more, so `kr8s` -- which nothing else declares -- is
+  # not in its closure, and an overlay cannot put it there: a set lifts its
+  # nixpkgs packages once, from the roots it was seeded with, and the lifting
+  # machinery is private to nixvenv's python-set.nix. Passing `./ekn` as
+  # a project root is what gets ekn's own dependencies resolved alongside
+  # nanopynix' -- `overrideScope` here fails with `attribute 'kr8s' missing`.
+  #
+  # kappy, the apply engine `ekn` imports, joins the set the same way. Its
+  # root is the `kappy/` project directory of the source, because the set
+  # leaves out of the nixpkgs lookup every root whose directory name is a
+  # declared dependency, and the source itself is named `source`.
+  #
+  # Only that directory is copied. kappy's `flake.lock` names a nixidae commit
+  # and moves with every lock commit, so a copy of the whole source would give
+  # `ekn` a different derivation here than in this repository's own flake,
+  # which reads nixidae at the commit that lock names.
+  kappyRoot =
+    let
+      root = toString sources.kappy;
+    in
+    builtins.path {
+      path = sources.kappy;
+      name = "source";
+      filter =
+        path: _type: path == root || path == "${root}/kappy" || lib.hasPrefix "${root}/kappy/" path;
+    }
+    + "/kappy";
+  eknFor = lane: rec {
+    pythonSet = lane.pythonSetWith {
+      projectRoots = [
+        ./ekn
+        kappyRoot
+      ];
+      overlay = pySelf: _pyPrev: {
+        kappy = pySelf.callPackage (ps.mkProject {
+          projectRoot = kappyRoot;
+          inherit (lane.pythonSet) python;
+          extra = rendered: {
+            meta = rendered.meta // {
+              platforms = lib.platforms.unix;
+            };
+          };
+        }) { };
+        ekn = pySelf.callPackage (ps.mkProject {
+          projectRoot = ./ekn;
+          inherit (lane.pythonSet) python;
+          # No `+nix<version>` local version segment, unlike nanopynix' own
+          # projects. Each lane's `ekn` is a separate application, and no
+          # environment installs two of them, so the segment would tell apart
+          # nothing.
+          extra = rendered: {
+            meta = rendered.meta // {
+              platforms = lib.platforms.unix;
+            };
+          };
+        }) { };
+      };
+    };
+
+    # `caBundle` is not optional. `internal.nix` and `lib/parseYamlStream.nix`
+    # run this program inside a Nix build sandbox, which sets `SSL_CERT_FILE` to
+    # a path that deliberately does not exist -- and `ekn` imports pygit2, which
+    # initialises OpenSSL at import and refuses to start with no trust store.
+    # See nanopynix' nix/mk-app.nix, and the `ekn-sandbox` gate in nix/default.nix
+    # that this repository keeps over it.
+    ekn = nanopynix.mkApp {
+      name = "ekn";
+      inherit pythonSet;
+      # `true`, and not an environment variable. `mkApp` renders the three
+      # completion scripts from argcomplete's own `shell_integration.shellcode`,
+      # which needs the name of the program and nothing else. The clypi shape
+      # this replaces named the variable clypi looked for.
+      completions = true;
+      caBundle = true;
+
+      # `ekn/src/ekn/sops.py` runs both of these as subprocesses: `age-keygen`
+      # to mint a keypair for each `kubernetes.sopsAgeIdentities` entry that is
+      # missing one, and `sops` to encrypt and decrypt with it. They are
+      # implementation details of this program, not tools a caller chooses, so
+      # they belong in its own closure.
+      #
+      # Until now they came from the ambient PATH, which meant `ekn kubeapply`
+      # worked only where someone happened to have installed them -- the dev
+      # shell below lists `age` for exactly that reason. On a machine without
+      # them the bootstrap died mid-apply with
+      # `FileNotFoundError: [Errno 2] No such file or directory: 'age-keygen'`,
+      # after it had already reached the cluster.
+      #
+      # `kubectl` and `git`, which the CLI also shells out to, are deliberately
+      # NOT here: those are the operator's own tools, with the operator's own
+      # config and credential helpers behind them.
+      pathInputs = [
+        pkgs.age
+        pkgs.sops
+      ];
+    };
+
+    # The environment the test suite and the dev shell run in: one venv holding
+    # `ekn`'s whole dependency closure and its own `test` extra.
+    #
+    # This used to be nanopynix' exported `pynixDevEnv`, which worked only for
+    # as long as nanopynix declared `ekn` itself -- that is where `kr8s` came
+    # from. It no longer does, so this repository assembles the environment for
+    # its own project, which is where that belongs.
+    #
+    # `ekn` is a built install here, not an editable one, and that is not a
+    # regression: pytest.ini's `pythonpath = ekn/src` is inserted at the front
+    # of `sys.path` and shadows it, so the tests read the working tree either
+    # way. `pynix` is deliberately absent -- nothing here imports it.
+    devEnv = pythonSet.mkVirtualEnv "easykubenix-dev-env" {
+      # `profile` brings pyinstrument, for `EKN_PROFILE=pyinstrument`. Here and
+      # not in the release `ekn`: a profiler belongs in the environment someone
+      # measures from, not in the closure a cluster fetches.
+      ekn = [
+        "profile"
+        "test"
+        "typecheck"
+      ];
+      pytest-agent = [ ];
+    };
+  };
+
+  # `ekn` for each lane of `nanopynix.lanes`, which are huggorm's lanes plus
+  # `stable` and `latest` (nixidae/nixidae#1108). The modules below run the
+  # `nixLane` one.
+  lanes = lib.mapAttrs (_: eknFor) nanopynix.lanes;
+  eknPythonSet = lanes.${nixLane}.pythonSet;
+  eknCli = lanes.${nixLane}.ekn;
+  eknDevEnv = lanes.${nixLane}.devEnv;
+
+  # Modules neither class owns. Both carry no `_class`, which is what lets
+  # them be imported into either evaluation, and neither declares an option
+  # belonging to a domain: `assertions.nix` declares the assertion and warning
+  # lists the module system's own `checkAssertWarn` reads, `lib.nix` declares
+  # a place for a configuration to put its helpers.
+  commonModules = [
+    ./easykubenix/assertions.nix
+    ./easykubenix/lib.nix
+  ];
+
+  # The modules an instance is evaluated with, per class. The top-level
+  # instance is always `kubernetes`; a `deployment.units.<name>` picks its own
+  # with that unit's `class`.
+  #
+  # The `kubernetes` list is one list, deliberately: a nested instance is a
+  # whole easykubenix configuration rather than a cut-down one, so a bootstrap
+  # unit can render a Helm chart (which is how you install the GitOps engine it
+  # exists to bootstrap). Nix's laziness means the modules it never uses cost
+  # it nothing.
+  #
+  # `tf` is deliberately short. An OpenTofu configuration has no manifests, no
+  # validation harness and no GitOps routing of its own, so it gets the option
+  # tree and nothing else. Whether a `tf` unit may itself declare units is an
+  # open question -- see design/opentofu.md -- and until it is answered the
+  # answer here is no, which is the reversible direction.
+  baseModules = {
+    kubernetes = commonModules ++ [
+      ./easykubenix/ekn.nix
+      ./easykubenix/gitops.nix
+      ./easykubenix/helm.nix
+      ./easykubenix/importyaml.nix
+      ./easykubenix/internal.nix
+      ./easykubenix/kluctl.nix
+      ./easykubenix/kubernetes.nix
+      ./easykubenix/validation.nix
+    ];
+    tf = commonModules ++ [
+      ./easykubenix/tofu.nix
+    ];
+  };
+
+  # Instantiate an easykubenix configuration. Called once below for the
+  # top-level instance, and again by gitops.nix for each GitOps target that
+  # carries its own `modules` -- see `ekn.lib.mkInstance` in `moduleArgs`.
+  #
+  # Everything costly is already bound in this `let` and is captured by
+  # closure rather than recomputed: the extended `pkgs`, the `nanopynix`
+  # import, `eknCli`, the `ekn` helper set. What a nested instance does cost
+  # is one more option merge; nothing in it is forced until something reads
+  # its `kubernetes.generated`, and `apiResources/v1.33.json` is imported by
+  # path, so Nix caches that parse across instances.
+  #
+  # Returns `evalModules`' own result (`.config`, `.options`), not the
+  # attrset this file returns -- a nested instance has no use for
+  # `validationScript`/`manifestJSONFile`, and building them would force work
+  # nobody asked for.
+  # The special arguments this repository was called with, kept under a name
+  # `mkInstance`'s own parameter cannot shadow.
+  #
+  # Every instance gets them, including a nested one built for a
+  # `gitOps.targets.<name>`. A nested instance is the same configuration in a
+  # different mood: a special argument the outer one needed is almost always
+  # one the inner one needs too, and forwarding means nobody has to remember.
+  #
+  # This is not a convenience. A special argument is the only way to pass
+  # something the module system must evaluate to learn a module's *shape* --
+  # a constructor a module is written as a call to, say. Such an argument
+  # cannot come through `_module.args`, because working out the shape would
+  # then require `config`, and the module system says so and stops:
+  #
+  #     noting that argument `mkComponent' is not externally provided, so
+  #     querying `_module.args' instead, requiring `config'
+  #     error: infinite recursion encountered
+  #
+  # So without forwarding there is no way at all to write such a module
+  # inside a bootstrap target, and no workaround from the consumer's side.
+  callerSpecialArgs = specialArgs;
+
+  mkInstance =
+    {
+      modules ? [ ],
+      specialArgs ? { },
+      class ? "kubernetes",
+    }:
+    lib.evalModules {
+      # Two separate jobs, and the same word for both.
+      #
+      # It picks `baseModules` above, which is the dispatch: a `tf` instance
+      # gets the OpenTofu option tree and no Kubernetes module at all.
+      #
+      # And `lib.evalModules` takes it as a nominal type, checked against each
+      # module's own `_class` as that module is imported. That is a guard, and
+      # it is the half that catches a mistake: a module written for the other
+      # class fails at the import with a message naming both classes, instead
+      # of failing once per option with "does not exist".
+      #
+      # The guard reaches `deployment.units.<name>.modules` too, even though
+      # `types.deferredModule` takes no class of its own -- those modules are
+      # imported here, and the check happens at the import.
+      inherit class;
+
+      # The caller's own arguments win over the forwarded ones, so
+      # gitops.nix's `parent` cannot be shadowed by a consumer passing a
+      # `parent` of its own at the top level.
+      specialArgs = {
+        inherit adios template;
+      }
+      // callerSpecialArgs
+      // specialArgs;
+
+      modules = [ { _module.args = moduleArgs; } ] ++ baseModules.${class} ++ modules;
+    };
+
+  # Bound here rather than inline in `ekn.lib` below, because `importYaml`
+  # needs `parseYAMLStream` and `importHelm` needs `importYaml`. Inline, each
+  # would import its dependency again.
+  parseYAMLStream = import ./easykubenix/lib/parseYamlStream.nix {
+    inherit lib pkgs;
+    yaml2json = pkgs.ekn-yaml2json;
+  };
+  importYaml = import ./easykubenix/lib/importYaml.nix { inherit lib parseYAMLStream; };
+  importHelm = import ./easykubenix/lib/importHelm.nix { inherit lib pkgs importYaml; };
+
+  # `sources.nixpkgs` rather than `pkgs.path`: the first is a string naming a
+  # store path, the second is a path value that an interpolation re-imports.
+  # Measured 0.36s against 6.3s. See nixTransform.nix.
+  nixTransform = import ./easykubenix/lib/nixTransform.nix {
+    inherit lib pkgs;
+    inherit (sources) nixpkgs;
+  };
+
+  # The OpenTofu registry, as provider derivations. A module argument rather
+  # than an option so a `tf` module can reach it while deciding its own shape,
+  # and lazy either way: nothing forces `sources.opentofu-registry` -- a ~424M
+  # tree -- unless a configuration actually names a provider from it.
+  tofuRegistry = import ./easykubenix/lib/tofuRegistry.nix {
+    inherit pkgs lib;
+    registry = sources.opentofu-registry;
+  };
+
+  moduleArgs = {
+    inherit pkgs tofuRegistry;
+    inherit (pkgs) lib;
+    # The `ekn` CLI package itself, under a distinct name so it can't
+    # be conflated with the `ekn` module-arg below (GitOps helpers) or
+    # `object.ekn` (GitOps-routing metadata, see kubernetes.nix's
+    # `ekn.gitOpsTarget`/`gitopsTargets`) -- same word, three unrelated
+    # meanings in this codebase, kept in separate namespaces. Built from
+    # this repository's own `ekn/` source (see `eknCli` above); an
+    # internal build-time tool for `internal.nix` and for
+    # parseYamlStream.nix's IFD fallback below.
+    eknPackage = eknCli;
+    # Helper functions for consuming modules, distinct from `object.ekn`
+    # (GitOps-routing metadata on rendered Kubernetes objects, see
+    # kubernetes.nix's `ekn.gitOpsTarget`/`gitopsTargets`) and the
+    # `ekn` CLI package bound above as `eknPackage` -- same word, three
+    # unrelated meanings in this codebase, kept in separate namespaces
+    # by construction (module function-arg vs. object attrset field vs.
+    # outer let-binding), but worth this note so nobody conflates them.
+    ekn = {
+      # Recursively wrap every leaf of an attrset in `lib.mkDefault`,
+      # so a module's baked-in option value (e.g. a Helm chart's
+      # `values`) stays overridable leaf-by-leaf instead of a caller's
+      # single definition replacing the whole thing.
+      mkDefaults = lib.mapAttrsRecursive (_: v: lib.mkDefault v);
+      # Reference an environment variable that `ekn` substitutes at apply
+      # time, for a bootstrap credential the cluster cannot invent:
+      #
+      #   stringData.password = ekn.envSeed "ARGOCD_REPO_PASSWORD";
+      #
+      # Evaluation never reads the variable, so no secret can reach
+      # `/nix/store`. See easykubenix/lib/envSeed.nix.
+      inherit (lib) envSeed envSeeded;
+      lib = {
+        packageRef = import ./easykubenix/lib/packageRef.nix { };
+        # Evaluate a whole separate easykubenix configuration from inside
+        # this one. Used by gitops.nix for `gitOps.targets.<name>.modules`;
+        # see `mkInstance` above for what it does and does not share with
+        # the instance calling it.
+        inherit mkInstance;
+        # The two halves of OpenTofu's interpolation rule, for a `tf`
+        # instance. OpenTofu reads `${...}` inside *any* JSON string as an
+        # expression, so a string means one of two things and Nix cannot tell
+        # which from the string alone.
+        #
+        # `ref` writes one deliberately:
+        #
+        #   bucket = ekn.lib.tf.ref "aws_s3_bucket.state.id";
+        #
+        # `escape` says the opposite -- that a string holding `${` is literal
+        # text. Without it OpenTofu reads the contents as an expression and
+        # fails with a message about an unknown variable, which names neither
+        # the option nor the Nix string that produced it. A shell script or a
+        # Kubernetes downward-API value is the usual victim.
+        tf = {
+          ref = expression: "\${${expression}}";
+          escape = lib.replaceStrings [ "\${" ] [ "$\${" ];
+          # The annotation that says an object ships `tf` units, by name and
+          # comma-separated: an object that hands a unit's `configFile` to
+          # something that runs it. `ekn kubeapply` checks each named unit's
+          # config.tf.json before applying the object.
+          unitsAnnotation = "ekn.dev/tofu-units";
+        };
+        # ArgoCD's per-object `argocd.argoproj.io/tracking-id` value, for a
+        # `gitOps.targets.<name>.annotations` entry -- the one piece of
+        # controller-specific knowledge here, kept as an opt-in helper so
+        # `gitOps.targets` itself stays neutral. See argocdTrackingId.nix.
+        argocdTrackingId = import ./easykubenix/lib/argocdTrackingId.nix { inherit lib; };
+        # Recursive JSON-ish value type (drop-in replacement for
+        # `pkgs.formats.json{}.type`/`settingsFormat.type`) that also
+        # accepts an attrset-keyed-by-`name` shorthand anywhere a list
+        # of named things (containers, ownerReferences, ...) would go,
+        # merged via ordinary `attrsOf` semantics and always emitted
+        # back out as a real list. See kubeValueType.nix.
+        kubeValueType = import ./easykubenix/lib/kubeValueType.nix { inherit lib; };
+        # The YAML-stream parser, used by importyaml.nix and helm.nix so
+        # neither reaches for a reader of its own. One reader, go-yaml, in a
+        # derivation. See parseYamlStream.nix.
+        inherit parseYAMLStream;
+        # Run a Nix transform in a derivation and read the JSON back, so a
+        # value carried whole by `mkUntyped` -- which nothing walks, and so
+        # nothing can transform -- is still transformable. The store caches
+        # the result, so a richer transform does not cost the render more.
+        # See nixTransform.nix.
+        inherit nixTransform;
+        # The two import primitives. Each returns a config fragment
+        # (`kubernetes.resources` + `kubernetes.crds` + `kubernetes.apiMappings`)
+        # that a caller places with `lib.mkMerge`, so a component built as a
+        # plain function -- with the real fixpoint in scope -- can produce
+        # objects without declaring an option and reading it back.
+        #
+        # `importyaml.nix` and `helm.nix` are wrappers over these. Before they
+        # existed the two modules carried byte-identical `apiMappings` blocks
+        # and near-identical downstreams, which is how one gained a hook the
+        # other lacked. See importYaml.nix.
+        inherit importYaml importHelm;
+        # The write direction, same dispatch (primop path + `ekn
+        # _jsonToYAML` derivation fallback). Drop-in for
+        # `builtins.toYAML`, which is a nanopynix primop and therefore
+        # absent under stock Nix -- a consumer calling it directly
+        # cannot be evaluated by plain `nix eval` at all, it dies with
+        # `attribute 'toYAML' missing`. See serialiseYaml.nix.
+        toYAML = import ./easykubenix/lib/serialiseYaml.nix {
+          inherit lib pkgs;
+          eknPackage = eknCli;
+        };
+      };
+    };
+  };
+
+  eval = mkInstance { inherit modules specialArgs; };
+in
+{
+  # From `internal.exportable`, not `internal` itself: these are files a
+  # person builds and hands to something else, usually `kubectl apply -f`,
+  # and nothing but `ekn` resolves an `ekn.envSeed` reference. A seeded
+  # object is therefore absent from them -- applying it from here would
+  # write `$ekn:env:VARNAME` over a live credential.
+  #
+  # `internal.manifestJSONFile` keeps the full set, because `ekn validate`,
+  # `ekn _applyManifest` and the cache push all go through the CLI, which
+  # substitutes first. `ekn render` likewise reads `kubernetes.generated`, so
+  # a person looking at what is about to happen still sees the seeded object
+  # with its reference visible rather than silently missing.
+  #
+  # `manifestYAMLFileList` used to be listed here and was never defined by
+  # any module, so forcing it failed with `attribute missing`. Removed rather
+  # than invented: nothing could have depended on an output that never
+  # evaluated.
+  inherit (eval.config.internal.exportable)
+    manifestAttrs
+    manifestJSON
+    manifestJSONFile
+    manifestYAML
+    manifestYAMLFile
+    manifestYAMLList
+    manifestYAMLDir
+    ;
+
+  /*
+    **The shape a NixOS evaluation has, so a generic tool can read this one.**
+
+    `nixos/lib/eval-config.nix` returns `config`, `options`, `pkgs` and `lib`
+    beside each other, and a tool that reads a module system looks for them
+    by those names. `pynix search` does: it tries `options` for the option
+    tree, `pkgs` then `_module.args.pkgs` for the package set, and `lib` for
+    the library. Only `config` was here, so it answered
+
+        <target> holds neither an options tree nor a package set.
+        Tried options and pkgs, _module.args.pkgs; name one with
+        --options-attr or --pkgs-attr.
+
+    and a person had to pass `--options-attr passthru.eval.options
+    --lib-attr passthru.lib --pkgs-attr passthru.pkgs` to search their own
+    configuration.
+
+    `passthru` keeps its copies rather than losing them to this. Consumers
+    read them by those paths -- docs/examples/default.nix takes
+    `passthru.pkgs` and nixkube's default.nix takes `passthru.eval.options`
+    -- and a second name for one value costs nothing, where moving it breaks
+    both.
+  */
+  inherit (eval) config options;
+  inherit pkgs lib;
+
+  deploymentScript = eval.config.kluctl.script;
+  validationScript = eval.config.validation.script;
+
+  # The workflows that run the tests. nixidae renders each one to
+  # `.github/workflows/easykubenix-<name>.yml`.
+  ciTestWorkflows.tests = import ./ci/workflows/tests.nix;
+  passthru = {
+    # `grpclib-transports` was here too, but nanopynix vendors that project
+    # now (it is no longer a flake input) and stopped exposing it as a
+    # top-level attribute, so the passthru entry would throw when forced.
+    inherit (nanopynix) nanopynix;
+    inherit (lane) huggorm-bindings;
+    inherit
+      sources
+      pkgs
+      lib
+      adios
+      eval
+      easykubenix-docs
+      ;
+    # This repository's own build of the CLI, from `ekn/`. nanopynix builds no
+    # `ekn` at all any more -- see `eknPythonSet` above.
+    ekn = eknCli;
+    inherit eknDevEnv nixvenv lanes;
+  };
+}
