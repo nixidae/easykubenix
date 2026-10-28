@@ -24,6 +24,8 @@ from typing import TYPE_CHECKING
 
 import kr8s
 import structlog
+from kappy.apply import ObjectKey
+from kappy.converge import object_key
 from kr8s.asyncio.objects import Deployment, StatefulSet
 
 if TYPE_CHECKING:
@@ -197,13 +199,13 @@ async def still_paused(workloads: Sequence[Workload], *, api: Api) -> list[Pause
     return found
 
 
-def object_keys(workloads: Iterable[Workload]) -> set[tuple[str, str, str]]:
+def object_keys(workloads: Iterable[Workload]) -> set[ObjectKey]:
     """The pause targets, keyed as `apply` keys every object.
 
     Feed this to `apply_and_prune`'s / `prune_generation`'s `protect`. See
     `without_pause_targets` for why both halves are needed.
     """
-    return {(w.namespace, w.kind, w.name) for w in workloads}
+    return {ObjectKey(w.namespace, w.kind, w.name) for w in workloads}
 
 
 def without_pause_targets(
@@ -250,14 +252,7 @@ def without_pause_targets(
     excluded = object_keys(workloads)
     kept: list[Manifest] = []
     for spec in objects:
-        metadata = spec.get("metadata")
-        namespace = metadata.get("namespace") if isinstance(metadata, dict) else None
-        name = metadata.get("name") if isinstance(metadata, dict) else None
-        key = (
-            str(namespace) if isinstance(namespace, str) else "none",
-            str(spec.get("kind")),
-            str(name) if isinstance(name, str) else "",
-        )
+        key = object_key(spec)
         if key in excluded:
             _log.warning(
                 "held by the engine pause, so this run cannot update it",

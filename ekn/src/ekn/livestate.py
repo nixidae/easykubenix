@@ -31,7 +31,7 @@ from typing import TYPE_CHECKING, Any
 
 import kr8s
 import structlog
-from kappy.apply import KindNotServedError, build_object
+from kappy.apply import CLUSTER_SCOPED, KindNotServedError, ObjectKey, build_object
 
 from ekn.engine import ENVIRONMENT_LABEL, UNIT_LABEL
 
@@ -61,7 +61,7 @@ OUR_MANAGERS = frozenset({"ekn"})
 class LiveObject:
     """One object as the metadata sweep saw it."""
 
-    key: tuple[str, str, str]
+    key: ObjectKey
     manifest_hash: str | None = None
     environment: str | None = None
     unit: str | None = None
@@ -166,8 +166,8 @@ def _live_object(kind: str, item: Mapping[str, Any]) -> LiveObject:
         return value if isinstance(value, str) else None
 
     return LiveObject(
-        key=(
-            string(metadata, "namespace") or "none",
+        key=ObjectKey(
+            string(metadata, "namespace") or CLUSTER_SCOPED,
             kind,
             string(metadata, "name") or "?",
         ),
@@ -184,7 +184,7 @@ async def sweep(
     kinds: Iterable[tuple[str, str]],
     *,
     selector: str | None = None,
-) -> dict[tuple[str, str, str], LiveObject]:
+) -> dict[ObjectKey, LiveObject]:
     """One metadata LIST per kind, as `(namespace, kind, name)` records.
 
     *kinds* is `(kind, apiVersion)` -- the two fields that identify a resource
@@ -200,7 +200,7 @@ async def sweep(
     rather than a failure. Every consumer answers "no record" the same way it
     answers "not swept": by doing the work.
     """
-    live: dict[tuple[str, str, str], LiveObject] = {}
+    live: dict[ObjectKey, LiveObject] = {}
     params = dict(CACHED_LIST)
     if selector:
         params["labelSelector"] = selector
@@ -324,7 +324,7 @@ def skippable(
 class ForeignOwner:
     """An object a manager other than ours owns part of."""
 
-    key: tuple[str, str, str]
+    key: ObjectKey
     managers: tuple[str, ...]
 
 

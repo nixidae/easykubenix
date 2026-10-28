@@ -26,7 +26,8 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 
 import kr8s
 import structlog
-from kappy.apply import build_object
+from kappy.apply import ObjectKey, build_object
+from kappy.converge import object_key
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
@@ -209,19 +210,6 @@ def _with_live_values(obj: Manifest, live: dict[str, str]) -> Manifest | None:
     return result
 
 
-def _identity(obj: Manifest) -> tuple[str, str, str]:
-    metadata = obj.get("metadata")
-    metadata = metadata if isinstance(metadata, dict) else {}
-    namespace = metadata.get("namespace")
-    name = metadata.get("name")
-    kind = obj.get("kind")
-    return (
-        namespace if isinstance(namespace, str) else "none",
-        kind if isinstance(kind, str) else "<unknown>",
-        name if isinstance(name, str) else "<unnamed>",
-    )
-
-
 async def _live_values(obj: Manifest, api: Api) -> dict[str, str] | None:
     """The live object's `stringData`-equivalent values, or None if absent.
 
@@ -270,7 +258,7 @@ class SeedPlan(NamedTuple):
     actions: list[SeedAction]
 
     @property
-    def protected(self) -> set[tuple[str, str, str]]:
+    def protected(self) -> set[ObjectKey]:
         """Identities pruning must not delete, because this run could not produce them.
 
         Every seeded object whose variables are not all set. Absence from the
@@ -287,7 +275,7 @@ class SeedPlan(NamedTuple):
         is an unrecoverable credential.
         """
         return {
-            (action.namespace, action.kind, action.name)
+            ObjectKey(action.namespace, action.kind, action.name)
             for action in self.actions
             if not all(os.environ.get(variable) for variable in action.variables)
         }
@@ -334,7 +322,7 @@ async def resolve(objects: Iterable[Manifest], *, api: Api) -> SeedPlan:
             planned.append(obj)
             continue
 
-        namespace, kind, name = _identity(obj)
+        namespace, kind, name = object_key(obj)
         values = {variable: value for variable in variables if (value := os.environ.get(variable))}
         unset = [variable for variable in variables if variable not in values]
         live = await _live_values(obj, api)
@@ -415,7 +403,7 @@ def describe(objects: Iterable[Manifest]) -> list[SeedRow]:
         variables = annotated_variables(obj)
         if not variables:
             continue
-        namespace, kind, name = _identity(obj)
+        namespace, kind, name = object_key(obj)
         fields = {reference.variable: reference.field for reference in references(obj)}
         rows.extend(
             SeedRow(
@@ -442,10 +430,10 @@ async def inspect(rows: Iterable[SeedRow], *, api: Api | None) -> list[SeedRow]:
     rows = list(rows)
     if api is None:
         return rows
-    present: dict[tuple[str, str, str], bool] = {}
+    present: dict[ObjectKey, bool] = {}
     result: list[SeedRow] = []
     for row in rows:
-        key = (row.namespace, row.kind, row.name)
+        key = ObjectKey(row.namespace, row.kind, row.name)
         if key not in present:
             probe: Manifest = {
                 "apiVersion": "v1",

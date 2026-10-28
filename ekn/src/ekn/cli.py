@@ -21,7 +21,7 @@ import structlog
 from anyio import Path
 from huggorm.errors import NixError
 from huggorm.jsonprimop import JsonValue
-from kappy.converge import DEFAULT_CONCURRENCY, DEFAULT_SETTLE_SECONDS, DEFAULT_WAIT_SECONDS
+from kappy.converge import DEFAULT_CONCURRENCY, DEFAULT_SETTLE_SECONDS, DEFAULT_WAIT_SECONDS, object_key
 from kappy.directapply import report_failures
 from pydantic import TypeAdapter, ValidationError
 
@@ -98,6 +98,8 @@ from ekn.validation import EphemeralControlPlane, load_manifest_objects, prepare
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mapping, Sequence
+
+    from kappy.apply import ObjectKey
 
     from ekn.eval import SchemaCheckConfig, TofuUnit
 
@@ -1228,7 +1230,7 @@ async def _converge_group(  # noqa: PLR0913 -- the same state `apply_and_prune` 
     cfg: KubeApplyConfigResult,
     options: _ConvergeOptions,
     prune: bool,
-    protect: set[tuple[str, str, str]],
+    protect: set[ObjectKey],
     unit_managers: Mapping[str, str] | None,
     cache: fastcache.ApplyCache | None = None,
 ) -> None:
@@ -1278,28 +1280,12 @@ async def _converge_group(  # noqa: PLR0913 -- the same state `apply_and_prune` 
         )
 
 
-def _object_identity(spec: dict[str, Any]) -> tuple[str, str, str]:
-    """A manifest keyed the way `apply` keys a live object.
-
-    `(namespace or "none", kind, name)`. A key in any other shape matches
-    nothing, silently -- which for `protect` means protecting nothing.
-    """
-    metadata = spec.get("metadata")
-    namespace = metadata.get("namespace") if isinstance(metadata, dict) else None
-    name = metadata.get("name") if isinstance(metadata, dict) else None
-    return (
-        str(namespace) if isinstance(namespace, str) else "none",
-        str(spec.get("kind")),
-        str(name) if isinstance(name, str) else "",
-    )
-
-
 @contextlib.asynccontextmanager
 async def _engine_paused(
     workloads: list[enginepause.Workload],
     *,
     api: kr8s.asyncio.Api,
-) -> AsyncIterator[set[tuple[str, str, str]]]:
+) -> AsyncIterator[set[ObjectKey]]:
     """Stop the engine for the body, and start it again whatever happens.
 
     Yields the object keys the body must neither apply nor prune. See
@@ -1327,7 +1313,7 @@ async def _hold_the_engine(
     *,
     api: kr8s.asyncio.Api,
     stack: contextlib.AsyncExitStack,
-) -> set[tuple[str, str, str]]:
+) -> set[ObjectKey]:
     """Pause the engine for the rest of the command, and say what it holds.
 
     Refuses when the configuration names no engine. An apply that believes
@@ -1362,7 +1348,7 @@ async def _apply_groups(  # noqa: PLR0913 -- each argument is one decision `ekn 
     prune: bool,
     cluster: str | None = None,
     converge: _ConvergeOptions | None = None,
-    held_by_engine_pause: set[tuple[str, str, str]] | None = None,
+    held_by_engine_pause: set[ObjectKey] | None = None,
     assume_unchanged: bool = False,
 ) -> None:
     """Decrypt and seed-resolve every group, then apply them in order.
@@ -1410,7 +1396,7 @@ async def _apply_groups(  # noqa: PLR0913 -- each argument is one decision `ekn 
     # the one sending -- and checking later would be checking after the
     # damage.
     if cfg.assert_cached:
-        sending = [spec for _group, plan in prepared for spec in plan.objects if _object_identity(spec) not in held]
+        sending = [spec for _group, plan in prepared for spec in plan.objects if object_key(spec) not in held]
         try:
             await storecheck.assert_fetchable(storecheck.store_paths_in(sending), substituters=cfg.assert_cached)
         except (storecheck.StorePathsUnavailableError, storecheck.NoSubstitutersError) as exc:
@@ -1480,7 +1466,7 @@ async def _open_apply_cache(  # noqa: PLR0913 -- one cache, and each argument is
     kinds: set[tuple[str, str]],
     cluster: str | None = None,
     assume_unchanged: bool = False,
-    never_record: set[tuple[str, str, str]] | None = None,
+    never_record: set[ObjectKey] | None = None,
     engine_managers: set[str] | None = None,
 ) -> fastcache.ApplyCache | None:
     """The record of what this machine applied, and what the cluster holds now.
@@ -1549,7 +1535,7 @@ def _engine_managers(cfg: KubeApplyConfigResult) -> set[str]:
     return {*cfg.unit_field_managers.values(), "kube-controller-manager", "kube-apiserver"}
 
 
-def _uncacheable_objects(objects: Iterable[dict[str, Any]]) -> set[tuple[str, str, str]]:
+def _uncacheable_objects(objects: Iterable[dict[str, Any]]) -> set[ObjectKey]:
     """Objects `fastcache` must never write a digest for.
 
     A SOPS-encrypted object and a seeded one both carry a value that is not in
@@ -1561,10 +1547,10 @@ def _uncacheable_objects(objects: Iterable[dict[str, Any]]) -> set[tuple[str, st
     resolution.** Both steps remove the marker that says which object this is
     about, so the same set computed one step later is empty and says nothing.
     """
-    return {_object_identity(obj) for obj in objects if isinstance(obj.get("sops"), dict) or seeds.is_seeded(obj)}
+    return {object_key(obj) for obj in objects if isinstance(obj.get("sops"), dict) or seeds.is_seeded(obj)}
 
 
-def _uncacheable(cfg: KubeApplyConfigResult) -> set[tuple[str, str, str]]:
+def _uncacheable(cfg: KubeApplyConfigResult) -> set[ObjectKey]:
     """`_uncacheable_objects` over every group's rendered manifest."""
     return _uncacheable_objects(obj for group in cfg.groups for obj in group.objects)
 
@@ -1576,7 +1562,7 @@ async def _apply_prepared(  # noqa: PLR0913 -- the state `_apply_groups` built, 
     api: kr8s.asyncio.Api,
     prune: bool,
     converge: _ConvergeOptions | None,
-    held: set[tuple[str, str, str]],
+    held: set[ObjectKey],
     unit_managers: Mapping[str, str] | None,
     cache: fastcache.ApplyCache | None,
 ) -> None:
@@ -1591,7 +1577,7 @@ async def _apply_prepared(  # noqa: PLR0913 -- the state `_apply_groups` built, 
         # skipping it without protecting it makes it absent from the desired
         # set, which a prune answers with a delete. See
         # `enginepause.without_pause_targets`.
-        objects = [spec for spec in plan.objects if _object_identity(spec) not in held]
+        objects = [spec for spec in plan.objects if object_key(spec) not in held]
         protected = plan.protected | held
         if converge is not None and converge.enabled:
             await _converge_group(

@@ -65,7 +65,7 @@ from .livestate import canonical_json, desired_hash
 if TYPE_CHECKING:
     from collections.abc import Collection, Mapping
 
-    from kappy.apply import Manifest
+    from kappy.apply import Manifest, ObjectKey
     from kr8s.asyncio import Api
 
     from .livestate import LiveObject
@@ -159,8 +159,8 @@ class ApplyCache:
     environment: str
     entries: dict[str, dict[str, Entry]] = field(default_factory=dict)
     assume_unchanged: bool = False
-    never_record: frozenset[tuple[str, str, str]] = frozenset()
-    live: Mapping[tuple[str, str, str], LiveObject] | None = None
+    never_record: frozenset[ObjectKey] = frozenset()
+    live: Mapping[ObjectKey, LiveObject] | None = None
     engine_managers: frozenset[str] = frozenset()
     swept_kinds: int = 0
     """How many kinds the sweep asked about: one LIST each, so this is what
@@ -206,7 +206,7 @@ class ApplyCache:
             return desired_hash(spec) is not None
         return entry.digest == digest(spec, field_manager=field_manager)
 
-    def unchanged(self, spec: Manifest, *, field_manager: str, key: tuple[str, str, str]) -> bool:
+    def unchanged(self, spec: Manifest, *, field_manager: str, key: ObjectKey) -> bool:
         """True when this object may be left alone.
 
         Two routes, and which one applies is decided by whether this machine
@@ -324,7 +324,7 @@ class ApplyCache:
         self._dirty = False
 
 
-def _entry_key(identity: tuple[str, str, str]) -> str:
+def _entry_key(identity: ObjectKey) -> str:
     return "/".join(identity)
 
 
@@ -412,7 +412,7 @@ async def open_cache(  # noqa: PLR0913 -- every argument is a different thing th
     environment: str,
     cluster: str | None = None,
     assume_unchanged: bool = False,
-    never_record: Collection[tuple[str, str, str]] = (),
+    never_record: Collection[ObjectKey] = (),
     engine_managers: Collection[str] = (),
 ) -> ApplyCache | None:
     """This cluster's cache, or None when the cluster cannot be identified.
