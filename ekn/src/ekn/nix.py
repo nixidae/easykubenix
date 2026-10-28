@@ -23,6 +23,7 @@ from huggorm import (
     StorePath,
     enable_experimental_feature,
     filter_ansi_escapes,
+    is_experimental_feature,
     load_config,
     parse_flake_ref,
     set_default_verbosity,
@@ -54,11 +55,14 @@ def _configure_process() -> None:
     """Read nix.conf and enable the features, once per process.
 
     `load_config` first, so a feature the host's nix.conf leaves off is still
-    enabled; the settings are process-wide, as `nix` itself has them.
+    enabled; the settings are process-wide, as `nix` itself has them. A
+    feature this Nix does not name is stable in it: Determinate Nix has no
+    `flakes` or `nix-command` feature, and refuses to enable one.
     """
     load_config()
     for feature in EXPERIMENTAL_FEATURES:
-        enable_experimental_feature(feature)
+        if is_experimental_feature(feature):
+            enable_experimental_feature(feature)
 
 
 def store_path(path: str) -> StorePath:
