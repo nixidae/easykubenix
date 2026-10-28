@@ -41,6 +41,7 @@ else
     };
     lib = { inherit easykubenix; };
     nixosModules = { };
+    easykubenixModules = { };
     inherit (outputs) checks shell;
     docs.default = demo.passthru.easykubenix-docs;
     ciTestWorkflows.tests = import ./ci/workflows/tests.nix;
