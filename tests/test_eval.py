@@ -378,6 +378,12 @@ class TestEknModule:
         with pytest.raises(NixError, match=rf"default/ConfigMap/runner -> {named}\n"):
             await evaluate_file(NIX_TEST_FILE, attr)
 
+    async def test_a_tf_unit_runs_its_parents_assertions(self) -> None:
+        # `ekn tofu` evaluates `deployment.tofuUnits.<name>`, not
+        # `kubernetes.generated`, so nothing else on its path would run them.
+        with pytest.raises(NixError, match=r"the parent's own check"):
+            await evaluate_file(NIX_TEST_FILE, "tofuUnitParentAssertionThrows")
+
     async def test_the_seed_annotations_name_each_variable(self) -> None:
         # The annotations are what every consumer reads, so they are the
         # contract: one numbered key per variable, greppable against a live

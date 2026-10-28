@@ -1001,6 +1001,28 @@ in
   tofuUnitsAnnotationRenders = tofuUnitsAnnotated "infra";
   tofuUnitsAnnotationUnknownThrows = tofuUnitsAnnotated "infra,nope";
   tofuUnitsAnnotationKubernetesUnitThrows = tofuUnitsAnnotated "apps";
+  # `ekn tofu` reads a unit through `deployment.tofuUnits`; the declaring
+  # instance's assertions have to fail there too.
+  tofuUnitParentAssertionThrows =
+    (import ../. {
+      inherit pkgs;
+      modules = [
+        {
+          ekn.environment = "easykubenix";
+          deployment.deployBranch = "deploy";
+          deployment.units.infra = {
+            class = "tf";
+            path = "infra";
+          };
+          assertions = [
+            {
+              assertion = false;
+              message = "the parent's own check";
+            }
+          ];
+        }
+      ];
+    }).config.deployment.tofuUnits.infra.configFile;
 
   importTransformerMarker = easyImportTransformerMarker.config.kubernetes.generated;
   importTransformers = easyImportTransformers.config.kubernetes.generated;
