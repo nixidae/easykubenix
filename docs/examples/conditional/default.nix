@@ -62,10 +62,10 @@ let
   };
 in
 {
-  manifestJSON = ekn.manifestJSON;
+  inherit (ekn) manifestJSON;
   check = import ../verify.nix {
     inherit pkgs lib;
     name = "conditional";
-    manifestJSON = ekn.manifestJSON;
+    inherit (ekn) manifestJSON;
   };
 }

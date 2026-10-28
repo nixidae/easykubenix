@@ -62,11 +62,11 @@ let
   };
 in
 {
-  manifestJSON = ekn.manifestJSON;
-  manifestYAMLFile = ekn.manifestYAMLFile;
+  inherit (ekn) manifestJSON;
+  inherit (ekn) manifestYAMLFile;
   check = import ../verify.nix {
     inherit pkgs lib;
     name = "basic-resources";
-    manifestJSON = ekn.manifestJSON;
+    inherit (ekn) manifestJSON;
   };
 }

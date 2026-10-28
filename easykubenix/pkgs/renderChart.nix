@@ -39,8 +39,8 @@ let
   chartDrv = fetchHelm {
     chart = chart.name;
     repo = chart.repoURL;
-    version = chart.version;
-    sha256 = chart.sha256;
+    inherit (chart) version;
+    inherit (chart) sha256;
   };
   valuesJsonFile = builtins.toFile "${name}-values.json" (builtins.toJSON values);
   # `helm template` runs as a plain (non-fixed-output) derivation, so IFD only

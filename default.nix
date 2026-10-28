@@ -19,7 +19,7 @@ let
 in
 let
   pkgs = pkgs';
-  lib = pkgs.lib;
+  inherit (pkgs) lib;
 
   # Hand nanopynix the same sources, rather than letting it ask for an
   # umbrella of its own. From a working copy in the umbrella it would find
@@ -28,7 +28,7 @@ let
   # umbrella wired.
   nanopynix = import sources.nanopynix { inherit pkgs sources; };
   lane = nanopynix.nanopynixVersions.${nixLane};
-  adios = (import sources.adios).adios;
+  inherit ((import sources.adios)) adios;
   template = definition: adios definition { };
   inherit (import sources.nixvenv { inherit pkgs sources; }) nixvenv ps;
   easykubenix-docs = pkgs.python3Packages.callPackage ./nix/docs.nix { inherit nixvenv; };

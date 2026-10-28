@@ -168,8 +168,8 @@ in
         controlPlaneEndpoint = "${bindHost}:$KUBERNETES_PORT";
         certificatesDir = "$CERT_DIR";
         networking = {
-          podSubnet = cfg.podSubnet;
-          serviceSubnet = cfg.serviceSubnet;
+          inherit (cfg) podSubnet;
+          inherit (cfg) serviceSubnet;
         };
       };
 

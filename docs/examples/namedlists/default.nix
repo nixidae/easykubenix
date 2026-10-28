@@ -130,10 +130,10 @@ let
   };
 in
 {
-  manifestJSON = ekn.manifestJSON;
+  inherit (ekn) manifestJSON;
   check = import ../verify.nix {
     inherit pkgs lib;
     name = "namedlists";
-    manifestJSON = ekn.manifestJSON;
+    inherit (ekn) manifestJSON;
   };
 }

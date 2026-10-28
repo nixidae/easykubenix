@@ -576,7 +576,7 @@ in
             config.instance = ekn.lib.mkInstance {
               inherit (target.config) class;
               modules =
-                lib.optional (target.config.class == "kubernetes") (
+                lib.optional (target.config.class == "kubernetes") {
                   # The parent's environment, not a derived one. Both applies
                   # stamp `ekn.dev/environment`, and the unit's own
                   # `ekn.dev/deployment-unit` label is what separates the two
@@ -590,8 +590,8 @@ in
                   # Conditional on the class because `ekn.environment` is not
                   # declared in a `tf` instance at all, so injecting it there
                   # is an error before any of the unit's own modules is read.
-                  { ekn.environment = lib.mkDefault config.ekn.environment; }
-                )
+                  ekn.environment = lib.mkDefault config.ekn.environment;
+                }
                 ++ target.config.modules;
               specialArgs = {
                 # The parent's *evaluated* config. A bootstrap configuration

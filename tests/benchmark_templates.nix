@@ -1,8 +1,8 @@
 let
   sources = import ../nix/sources.nix;
   pkgs = import sources.nixpkgs { };
-  lib = pkgs.lib;
-  adios = (import sources.adios).adios;
+  inherit (pkgs) lib;
+  inherit ((import sources.adios)) adios;
   template = definition: adios definition { };
 
   arguments = index: {

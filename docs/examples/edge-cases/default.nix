@@ -44,10 +44,10 @@ let
   };
 in
 {
-  manifestJSON = ekn.manifestJSON;
+  inherit (ekn) manifestJSON;
   check = import ../verify.nix {
     inherit pkgs lib;
     name = "edge-cases";
-    manifestJSON = ekn.manifestJSON;
+    inherit (ekn) manifestJSON;
   };
 }

@@ -83,10 +83,10 @@ let
   };
 in
 {
-  manifestJSON = ekn.manifestJSON;
+  inherit (ekn) manifestJSON;
   check = import ../verify.nix {
     inherit pkgs lib;
     name = "generators-transformers-filters";
-    manifestJSON = ekn.manifestJSON;
+    inherit (ekn) manifestJSON;
   };
 }

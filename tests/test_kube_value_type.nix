@@ -1094,7 +1094,7 @@ let
   # A function matches no branch at all. Without a rejection it would reach
   # `builtins.toJSON` and fail there instead, naming neither the option nor
   # the module that wrote it.
-  aFunctionThrows = evalValue [ { value.callback = (x: x); } ];
+  aFunctionThrows = evalValue [ { value.callback = x: x; } ];
 
   # A numbered list takes its order from its index keys, exactly as a named
   # list takes its order from its name keys. An order property on an entry
@@ -1520,42 +1520,42 @@ in
 
   # Forcing these must throw -- each is exposed as a thunk so the test can
   # assert on the error without eagerly evaluating it above.
-  namedEntryConflictThrows = namedEntryConflictThrows;
-  numberedEntryConflictThrows = numberedEntryConflictThrows;
-  mkOrderOnNumberedEntryThrows = mkOrderOnNumberedEntryThrows;
-  intAndStringThrows = intAndStringThrows;
-  aFunctionThrows = aFunctionThrows;
-  unmarkedAttrsRejectedAgainstListThrows = unmarkedAttrsRejectedAgainstListThrows;
-  mixedNullAndValueThrows = mixedNullAndValueThrows;
-  mixedNamedAndNumberedThrows = mixedNamedAndNumberedThrows;
-  mkOrderOnNamedEntryThrows = mkOrderOnNamedEntryThrows;
-  mkNamedListRejectsNonAttrsInput = mkNamedListRejectsNonAttrsInput;
-  mkNamedListRejectsNonAttrsValues = mkNamedListRejectsNonAttrsValues;
-  mkNamedListIsLazyInItsValues = mkNamedListIsLazyInItsValues;
-  mkNumberedListRejectsNonIntKeys = mkNumberedListRejectsNonIntKeys;
-  untypedTwiceThrows = untypedTwiceThrows;
-  replaceKeyMatchesNothingThrows = replaceKeyMatchesNothingThrows;
-  replaceNoMatchNamesTheClosestElement = replaceNoMatchNamesTheClosestElement;
-  replaceWhereTwicePredicatedThrows = replaceWhereTwicePredicatedThrows;
-  replaceWhereMixedWithAPlainKeyThrows = replaceWhereMixedWithAPlainKeyThrows;
-  replaceWhereValueOnlyAloneThrows = replaceWhereValueOnlyAloneThrows;
-  replaceListOnObjectsNamesMkReplaceWhere = replaceListOnObjectsNamesMkReplaceWhere;
-  replaceWhereMatchesNothingThrows = replaceWhereMatchesNothingThrows;
-  mkReplaceWhereRejectsNonAttrsInput = mkReplaceWhereRejectsNonAttrsInput;
-  mkReplaceWhereRejectsANonFunctionWhere = mkReplaceWhereRejectsANonFunctionWhere;
-  mkReplaceWhereRejectsAPropertyOnThePair = mkReplaceWhereRejectsAPropertyOnThePair;
-  replaceNoMatchWithNothingSimilar = replaceNoMatchWithNothingSimilar;
-  replaceKeyMatchesTwoThrows = replaceKeyMatchesTwoThrows;
-  replaceTwoKeysOnOneElementThrows = replaceTwoKeysOnOneElementThrows;
-  replaceWithNoListThrows = replaceWithNoListThrows;
-  replaceUnderMkForceThrows = replaceUnderMkForceThrows;
-  replaceOnAListOfObjectsThrows = replaceOnAListOfObjectsThrows;
-  replaceConflictingValuesThrows = replaceConflictingValuesThrows;
-  replaceMkMergeSameKeyThrows = replaceMkMergeSameKeyThrows;
-  mixedNumberedAndReplaceThrows = mixedNumberedAndReplaceThrows;
-  mkOrderOnReplaceEntryThrows = mkOrderOnReplaceEntryThrows;
-  mkReplaceListRejectsNonAttrsInput = mkReplaceListRejectsNonAttrsInput;
-  mkReplaceListRejectsTheEmptyKey = mkReplaceListRejectsTheEmptyKey;
+  inherit namedEntryConflictThrows;
+  inherit numberedEntryConflictThrows;
+  inherit mkOrderOnNumberedEntryThrows;
+  inherit intAndStringThrows;
+  inherit aFunctionThrows;
+  inherit unmarkedAttrsRejectedAgainstListThrows;
+  inherit mixedNullAndValueThrows;
+  inherit mixedNamedAndNumberedThrows;
+  inherit mkOrderOnNamedEntryThrows;
+  inherit mkNamedListRejectsNonAttrsInput;
+  inherit mkNamedListRejectsNonAttrsValues;
+  inherit mkNamedListIsLazyInItsValues;
+  inherit mkNumberedListRejectsNonIntKeys;
+  inherit untypedTwiceThrows;
+  inherit replaceKeyMatchesNothingThrows;
+  inherit replaceNoMatchNamesTheClosestElement;
+  inherit replaceWhereTwicePredicatedThrows;
+  inherit replaceWhereMixedWithAPlainKeyThrows;
+  inherit replaceWhereValueOnlyAloneThrows;
+  inherit replaceListOnObjectsNamesMkReplaceWhere;
+  inherit replaceWhereMatchesNothingThrows;
+  inherit mkReplaceWhereRejectsNonAttrsInput;
+  inherit mkReplaceWhereRejectsANonFunctionWhere;
+  inherit mkReplaceWhereRejectsAPropertyOnThePair;
+  inherit replaceNoMatchWithNothingSimilar;
+  inherit replaceKeyMatchesTwoThrows;
+  inherit replaceTwoKeysOnOneElementThrows;
+  inherit replaceWithNoListThrows;
+  inherit replaceUnderMkForceThrows;
+  inherit replaceOnAListOfObjectsThrows;
+  inherit replaceConflictingValuesThrows;
+  inherit replaceMkMergeSameKeyThrows;
+  inherit mixedNumberedAndReplaceThrows;
+  inherit mkOrderOnReplaceEntryThrows;
+  inherit mkReplaceListRejectsNonAttrsInput;
+  inherit mkReplaceListRejectsTheEmptyKey;
 
   inherit untypedCarriesTheValueWhole untypedNestedInsideAnObject;
 }

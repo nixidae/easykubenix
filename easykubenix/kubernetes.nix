@@ -514,12 +514,7 @@ let
                   spec = object.spec or { };
                   pinned = lib.filter (ip: ip != "None" && builtins.match "([0-9]{1,3}\.){3}[0-9]{1,3}" ip != null) (
                     lib.toList (
-                      if spec ? clusterIPs then
-                        spec.clusterIPs
-                      else if spec ? clusterIP && spec.clusterIP != "None" then
-                        spec.clusterIP
-                      else
-                        [ ]
+                      spec.clusterIPs or (if spec ? clusterIP && spec.clusterIP != "None" then spec.clusterIP else [ ])
                     )
                   );
                 in

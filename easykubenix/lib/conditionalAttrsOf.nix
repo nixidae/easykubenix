@@ -259,7 +259,7 @@ let
       };
       emptyValue.value = { };
       getSubOptions = prefix: elemType.getSubOptions (prefix ++ [ "<name>" ]);
-      getSubModules = elemType.getSubModules;
+      inherit (elemType) getSubModules;
       substSubModules = m: conditionalAttrsWith { elemType = elemType.substSubModules m; };
       functor = {
         inherit name;

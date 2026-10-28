@@ -73,6 +73,6 @@ in
   check = import ../verify.nix {
     inherit pkgs lib;
     name = "validation-crds";
-    manifestJSON = ekn.manifestJSON;
+    inherit (ekn) manifestJSON;
   };
 }

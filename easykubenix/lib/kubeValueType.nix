@@ -551,7 +551,7 @@ let
                   lib.modules.mergeDefinitions (loc ++ [ label ]) elemType (
                     [
                       {
-                        file = (lib.head plainDefs).file;
+                        inherit ((lib.head plainDefs)) file;
                         value = asDefault (lib.elemAt base index);
                       }
                     ]
