@@ -30,7 +30,7 @@ let
   lane = nanopynix.lanes.${nixLane};
   inherit ((import sources.adios)) adios;
   template = definition: adios definition { };
-  inherit (import sources.nixvenv { inherit pkgs sources; }) nixvenv ps;
+  inherit ((import sources.nixvenv { inherit pkgs sources; }).lib) nixvenv ps;
   easykubenix-docs = pkgs.python3Packages.callPackage ./nix/docs.nix { inherit nixvenv; };
 
   # The `ekn` CLI, built from this repository's own `ekn/` source, which is

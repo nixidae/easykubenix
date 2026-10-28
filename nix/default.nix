@@ -337,7 +337,7 @@ in
     python = pkgs.python3;
     inherit (pkgs.python3Packages) sphinx myst-parser furo;
     inherit (root.passthru) eknDevEnv;
-    inherit (import sources.nixvenv { inherit pkgs; }) nixvenv;
+    inherit ((import sources.nixvenv { inherit pkgs; }).lib) nixvenv;
   };
 
   checks = examples.checks // {
