@@ -8,7 +8,7 @@
     config.allowUnfree = true;
   },
   # The nanopynix lane `ekn` evaluates with: a key of
-  # `nanopynix.nanopynixVersions`, such as `determinate` for Determinate Nix.
+  # `nanopynix.lanes`, such as `determinate` for Determinate Nix.
   nixLane ? "stable",
   modules ? [ ./demo ],
   specialArgs ? { },
@@ -27,7 +27,7 @@ let
   # published one, and the nanopynix built here would not be the one the
   # umbrella wired.
   nanopynix = import sources.nanopynix { inherit pkgs sources; };
-  lane = nanopynix.nanopynixVersions.${nixLane};
+  lane = nanopynix.lanes.${nixLane};
   inherit ((import sources.adios)) adios;
   template = definition: adios definition { };
   inherit (import sources.nixvenv { inherit pkgs sources; }) nixvenv ps;
@@ -107,7 +107,7 @@ let
     # initialises OpenSSL at import and refuses to start with no trust store.
     # See nanopynix' nix/mk-app.nix, and the `ekn-sandbox` gate in nix/default.nix
     # that this repository keeps over it.
-    ekn = nanopynix.mkApp {
+    ekn = nanopynix.lib.mkApp {
       name = "ekn";
       inherit pythonSet;
       # `true`, and not an environment variable. `mkApp` renders the three
