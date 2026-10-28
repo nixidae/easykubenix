@@ -69,97 +69,107 @@ let
         path: _type: path == root || path == "${root}/kappy" || lib.hasPrefix "${root}/kappy/" path;
     }
     + "/kappy";
-  eknPythonSet = lane.pythonSetWith {
-    projectRoots = [
-      ./ekn
-      kappyRoot
-    ];
-    overlay = pySelf: _pyPrev: {
-      kappy = pySelf.callPackage (ps.mkProject {
-        projectRoot = kappyRoot;
-        inherit (lane.pythonSet) python;
-        extra = rendered: {
-          meta = rendered.meta // {
-            platforms = lib.platforms.unix;
+  eknFor = lane: rec {
+    pythonSet = lane.pythonSetWith {
+      projectRoots = [
+        ./ekn
+        kappyRoot
+      ];
+      overlay = pySelf: _pyPrev: {
+        kappy = pySelf.callPackage (ps.mkProject {
+          projectRoot = kappyRoot;
+          inherit (lane.pythonSet) python;
+          extra = rendered: {
+            meta = rendered.meta // {
+              platforms = lib.platforms.unix;
+            };
           };
-        };
-      }) { };
-      ekn = pySelf.callPackage (ps.mkProject {
-        projectRoot = ./ekn;
-        inherit (lane.pythonSet) python;
-        # No `+nix<version>` local version segment, unlike nanopynix' own
-        # projects. That segment tells apart the same source built against
-        # each supported Nix version; this repository has exactly one
-        # nanopynix, so it would distinguish nothing.
-        extra = rendered: {
-          meta = rendered.meta // {
-            platforms = lib.platforms.unix;
+        }) { };
+        ekn = pySelf.callPackage (ps.mkProject {
+          projectRoot = ./ekn;
+          inherit (lane.pythonSet) python;
+          # No `+nix<version>` local version segment, unlike nanopynix' own
+          # projects. Each lane's `ekn` is a separate application, and no
+          # environment installs two of them, so the segment would tell apart
+          # nothing.
+          extra = rendered: {
+            meta = rendered.meta // {
+              platforms = lib.platforms.unix;
+            };
           };
-        };
-      }) { };
+        }) { };
+      };
+    };
+
+    # `caBundle` is not optional. `internal.nix` and `lib/parseYamlStream.nix`
+    # run this program inside a Nix build sandbox, which sets `SSL_CERT_FILE` to
+    # a path that deliberately does not exist -- and `ekn` imports pygit2, which
+    # initialises OpenSSL at import and refuses to start with no trust store.
+    # See nanopynix' nix/mk-app.nix, and the `ekn-sandbox` gate in nix/default.nix
+    # that this repository keeps over it.
+    ekn = nanopynix.mkApp {
+      name = "ekn";
+      inherit pythonSet;
+      # `true`, and not an environment variable. `mkApp` renders the three
+      # completion scripts from argcomplete's own `shell_integration.shellcode`,
+      # which needs the name of the program and nothing else. The clypi shape
+      # this replaces named the variable clypi looked for.
+      completions = true;
+      caBundle = true;
+
+      # `ekn/src/ekn/sops.py` runs both of these as subprocesses: `age-keygen`
+      # to mint a keypair for each `kubernetes.sopsAgeIdentities` entry that is
+      # missing one, and `sops` to encrypt and decrypt with it. They are
+      # implementation details of this program, not tools a caller chooses, so
+      # they belong in its own closure.
+      #
+      # Until now they came from the ambient PATH, which meant `ekn kubeapply`
+      # worked only where someone happened to have installed them -- the dev
+      # shell below lists `age` for exactly that reason. On a machine without
+      # them the bootstrap died mid-apply with
+      # `FileNotFoundError: [Errno 2] No such file or directory: 'age-keygen'`,
+      # after it had already reached the cluster.
+      #
+      # `kubectl` and `git`, which the CLI also shells out to, are deliberately
+      # NOT here: those are the operator's own tools, with the operator's own
+      # config and credential helpers behind them.
+      pathInputs = [
+        pkgs.age
+        pkgs.sops
+      ];
+    };
+
+    # The environment the test suite and the dev shell run in: one venv holding
+    # `ekn`'s whole dependency closure and its own `test` extra.
+    #
+    # This used to be nanopynix' exported `pynixDevEnv`, which worked only for
+    # as long as nanopynix declared `ekn` itself -- that is where `kr8s` came
+    # from. It no longer does, so this repository assembles the environment for
+    # its own project, which is where that belongs.
+    #
+    # `ekn` is a built install here, not an editable one, and that is not a
+    # regression: pytest.ini's `pythonpath = ekn/src` is inserted at the front
+    # of `sys.path` and shadows it, so the tests read the working tree either
+    # way. `pynix` is deliberately absent -- nothing here imports it.
+    devEnv = pythonSet.mkVirtualEnv "easykubenix-dev-env" {
+      # `profile` brings pyinstrument, for `EKN_PROFILE=pyinstrument`. Here and
+      # not in the release `ekn`: a profiler belongs in the environment someone
+      # measures from, not in the closure a cluster fetches.
+      ekn = [
+        "profile"
+        "test"
+      ];
+      pytest-agent = [ ];
     };
   };
 
-  # `caBundle` is not optional. `internal.nix` and `lib/parseYamlStream.nix`
-  # run this program inside a Nix build sandbox, which sets `SSL_CERT_FILE` to
-  # a path that deliberately does not exist -- and `ekn` imports pygit2, which
-  # initialises OpenSSL at import and refuses to start with no trust store.
-  # See nanopynix' nix/mk-app.nix, and the `ekn-sandbox` gate in nix/default.nix
-  # that this repository keeps over it.
-  eknCli = nanopynix.mkApp {
-    name = "ekn";
-    pythonSet = eknPythonSet;
-    # `true`, and not an environment variable. `mkApp` renders the three
-    # completion scripts from argcomplete's own `shell_integration.shellcode`,
-    # which needs the name of the program and nothing else. The clypi shape
-    # this replaces named the variable clypi looked for.
-    completions = true;
-    caBundle = true;
-
-    # `ekn/src/ekn/sops.py` runs both of these as subprocesses: `age-keygen`
-    # to mint a keypair for each `kubernetes.sopsAgeIdentities` entry that is
-    # missing one, and `sops` to encrypt and decrypt with it. They are
-    # implementation details of this program, not tools a caller chooses, so
-    # they belong in its own closure.
-    #
-    # Until now they came from the ambient PATH, which meant `ekn kubeapply`
-    # worked only where someone happened to have installed them -- the dev
-    # shell below lists `age` for exactly that reason. On a machine without
-    # them the bootstrap died mid-apply with
-    # `FileNotFoundError: [Errno 2] No such file or directory: 'age-keygen'`,
-    # after it had already reached the cluster.
-    #
-    # `kubectl` and `git`, which the CLI also shells out to, are deliberately
-    # NOT here: those are the operator's own tools, with the operator's own
-    # config and credential helpers behind them.
-    pathInputs = [
-      pkgs.age
-      pkgs.sops
-    ];
-  };
-
-  # The environment the test suite and the dev shell run in: one venv holding
-  # `ekn`'s whole dependency closure and its own `test` extra.
-  #
-  # This used to be nanopynix' exported `pynixDevEnv`, which worked only for
-  # as long as nanopynix declared `ekn` itself -- that is where `kr8s` came
-  # from. It no longer does, so this repository assembles the environment for
-  # its own project, which is where that belongs.
-  #
-  # `ekn` is a built install here, not an editable one, and that is not a
-  # regression: pytest.ini's `pythonpath = ekn/src` is inserted at the front
-  # of `sys.path` and shadows it, so the tests read the working tree either
-  # way. `pynix` is deliberately absent -- nothing here imports it.
-  eknDevEnv = eknPythonSet.mkVirtualEnv "easykubenix-dev-env" {
-    # `profile` brings pyinstrument, for `EKN_PROFILE=pyinstrument`. Here and
-    # not in the release `ekn`: a profiler belongs in the environment someone
-    # measures from, not in the closure a cluster fetches.
-    ekn = [
-      "profile"
-      "test"
-    ];
-    pytest-agent = [ ];
-  };
+  # `ekn` for each lane of `nanopynix.lanes`, which are huggorm's lanes plus
+  # `stable` and `latest` (nixidae/nixidae#1108). The modules below run the
+  # `nixLane` one.
+  lanes = lib.mapAttrs (_: eknFor) nanopynix.lanes;
+  eknPythonSet = lanes.${nixLane}.pythonSet;
+  eknCli = lanes.${nixLane}.ekn;
+  eknDevEnv = lanes.${nixLane}.devEnv;
 
   # Modules neither class owns. Both carry no `_class`, which is what lets
   # them be imported into either evaluation, and neither declares an option
@@ -489,6 +499,6 @@ in
     # This repository's own build of the CLI, from `ekn/`. nanopynix builds no
     # `ekn` at all any more -- see `eknPythonSet` above.
     ekn = eknCli;
-    inherit eknDevEnv nixvenv;
+    inherit eknDevEnv nixvenv lanes;
   };
 }
