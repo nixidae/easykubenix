@@ -483,6 +483,46 @@ and its credentials — it couples deploying an application to owning the
 infrastructure state. Where those are different people, use an ordinary
 kubeconfig and keep the two apart.
 
+### Environment roots
+
+An environment that holds more than one cluster's worth of configuration
+-- OpenTofu, NixOS hosts, a cluster -- can be a root instead
+(`class = "root"`):
+
+```nix
+import ./easykubenix {
+  class = "root";
+  modules = [
+    ({ config, nixosGenerator, ... }: {
+      generators.rs501a = nixosGenerator { modules = [ ./hosts/rs501a.nix ]; };
+      units = {
+        cluster.kubernetes.imports = [ ./kubernetes ];
+        day2 = {
+          tofu.imports = [ ./day2.nix ];
+          dependencies = [ "infra" ];
+        };
+        infra.tofu.imports = [ ./infra.nix ];
+        node1.nixos = config.generators.rs501a { name = "node1"; };
+      };
+    })
+  ];
+}
+```
+
+- A unit is one configuration of one class, as a submodule: `kubernetes`,
+  `tofu` or `nixos`, exactly one. Each keeps its own module system and
+  class guard. Units read the root and each other through the `root`
+  argument, so a cluster can name a tofu unit's `configFile`.
+- `generators` is an attrset of functions something else calls.
+  `nixosGenerator { nixpkgs, specialArgs, modules }` returns
+  `{ name, labels, system } -> <NixOS evaluation>`, the shape a nixkube
+  NixOSRollout calls; its modules get `node` and `root`, from the
+  generator's own `nixpkgs`.
+- `ekn kubeapply`, `render` and the other Kubernetes commands take a root's
+  one Kubernetes unit; with several, `--attr <root>.config.units.<name>.kubernetes`.
+  `ekn tofu` reads the root's tofu units, with each unit's dependencies
+  applied first. Both run the root's assertions.
+
 ### Bumping across the renderChart stamp removal
 
 `pkgs.renderChart` no longer takes `deploymentUnit`, and a caller that passed
