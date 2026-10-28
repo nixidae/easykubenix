@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -31,6 +32,6 @@ def test_repo(tmp_path: Path) -> Path:
 
 
 @pytest.fixture(autouse=True)
-def _clean_env() -> None:
+def _clean_env() -> Iterator[None]:
     yield
     os.environ.pop("EKN_REPO", None)

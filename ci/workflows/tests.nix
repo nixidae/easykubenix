@@ -72,7 +72,7 @@
       }
       {
         name = "Check types";
-        run = "nix-shell --run 'pyright ekn'";
+        run = "nix-shell --run 'zuban mypy'";
       }
     ];
   };

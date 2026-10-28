@@ -5,7 +5,7 @@
   myst-parser,
   furo,
   ruff,
-  pyright,
+  zuban,
   nixfmt,
   sops,
   age,
@@ -44,7 +44,7 @@ mkShell {
     eknDevEnv
     docsEnv
     ruff
-    pyright
+    zuban
     # Same version the `nixfmt` gate in ./default.nix runs, because both come
     # from this repository's nixpkgs pin. A formatter that disagrees with its
     # own gate is worse than none, and nixfmt's output does move between

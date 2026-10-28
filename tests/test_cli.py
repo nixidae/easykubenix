@@ -9,7 +9,10 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 import pytest
+from json_at import at, list_at, text_at
+from kappy.apply import ObjectKey
 
+from ekn import enginepause, fastcache, livestate
 from ekn.cli import (
     ClusterDiff,
     Deploy,
@@ -101,9 +104,9 @@ class TestDiff:
         os.environ["EKN_REPO"] = str(git_repo)
         try:
             result = await evaluate_file(f, "customer1")
-            files = flatten_manifests(result["config"]["kubernetes"]["generated"])
-            commit_manifests(".", result["config"]["gitops"]["branch"], files, "seed")
-            diff_out = diff_manifests(".", result["config"]["gitops"]["branch"], files)
+            files = flatten_manifests(list_at(result, "config", "kubernetes", "generated"))
+            commit_manifests(".", text_at(result, "config", "gitops", "branch"), files, "seed")
+            diff_out = diff_manifests(".", text_at(result, "config", "gitops", "branch"), files)
             assert diff_out is None
         finally:
             os.environ.pop("EKN_REPO", None)
@@ -120,7 +123,7 @@ class TestDiff:
 }
 """)
         result = await evaluate_file(f, "app")
-        assert result["config"]["gitops"]["enable"] is False
+        assert at(result, "config", "gitops", "enable") is False
 
     async def test_diff_branch_override(self, tmp_path: Path, git_repo: Path) -> None:
         f = tmp_path / "customers.nix"
@@ -139,7 +142,7 @@ class TestDiff:
                 ]
             )
             commit_manifests(".", "override-branch", default_files, "first")
-            new_files = flatten_manifests(result["config"]["kubernetes"]["generated"])
+            new_files = flatten_manifests(list_at(result, "config", "kubernetes", "generated"))
             diff_out = diff_manifests(".", "override-branch", new_files)
             assert diff_out is not None
             assert "my-config" in diff_out or "test" in diff_out
@@ -354,8 +357,8 @@ class TestCommit:
         os.environ["EKN_REPO"] = str(git_repo)
         try:
             result = await evaluate_file(f, "customer1")
-            files = flatten_manifests(result["config"]["kubernetes"]["generated"])
-            commit_id = commit_manifests(".", result["config"]["gitops"]["branch"], files, "test")
+            files = flatten_manifests(list_at(result, "config", "kubernetes", "generated"))
+            commit_id = commit_manifests(".", text_at(result, "config", "gitops", "branch"), files, "test")
             assert isinstance(commit_id, str)
             assert len(commit_id) > 0
         finally:
@@ -367,9 +370,9 @@ class TestCommit:
         os.environ["EKN_REPO"] = str(git_repo)
         try:
             result = await evaluate_file(f, "customer1")
-            files = flatten_manifests(result["config"]["kubernetes"]["generated"])
-            commit_manifests(".", result["config"]["gitops"]["branch"], files, "first")
-            commit_id = commit_manifests(".", result["config"]["gitops"]["branch"], files, "second")
+            files = flatten_manifests(list_at(result, "config", "kubernetes", "generated"))
+            commit_manifests(".", text_at(result, "config", "gitops", "branch"), files, "first")
+            commit_id = commit_manifests(".", text_at(result, "config", "gitops", "branch"), files, "second")
             assert isinstance(commit_id, str)
         finally:
             os.environ.pop("EKN_REPO", None)
@@ -380,7 +383,7 @@ class TestCommit:
         os.environ["EKN_REPO"] = str(git_repo)
         try:
             result = await evaluate_file(f, "customer1")
-            files = flatten_manifests(result["config"]["kubernetes"]["generated"])
+            files = flatten_manifests(list_at(result, "config", "kubernetes", "generated"))
             commit_id = commit_manifests(".", "override", files, "override")
             assert isinstance(commit_id, str)
         finally:
@@ -833,7 +836,7 @@ class TestTheEnginePauseHoldsObjectsBack:
             seen["protect"] = kwargs["protect"]
 
         monkeypatch.setattr(cli_module, "apply_and_prune", _apply_and_prune)
-        held = {("argocd", "StatefulSet", "argo-cd-argocd-application-controller")}
+        held = {ObjectKey("argocd", "StatefulSet", "argo-cd-argocd-application-controller")}
 
         await _apply_groups(
             self._config(),
@@ -873,15 +876,15 @@ class TestTheEngineIsResumedWhateverHappens:
         resumed: list[Any] = []
 
         async def _pause(workloads: Any, **_kwargs: Any) -> list[Any]:
-            return [cli_module.enginepause.Paused(w, 1) for w in workloads]
+            return [enginepause.Paused(w, 1) for w in workloads]
 
         async def _resume(paused: Any, **_kwargs: Any) -> list[str]:
             resumed.extend(entry.workload for entry in paused)
             return []
 
-        monkeypatch.setattr(cli_module.enginepause, "pause", _pause)
-        monkeypatch.setattr(cli_module.enginepause, "resume", _resume)
-        workload = cli_module.enginepause.Workload(namespace="argocd", name="c", kind="StatefulSet")
+        monkeypatch.setattr(enginepause, "pause", _pause)
+        monkeypatch.setattr(enginepause, "resume", _resume)
+        workload = enginepause.Workload(namespace="argocd", name="c", kind="StatefulSet")
 
         with pytest.raises(RuntimeError, match="the apply blew up"):
             async with cli_module._engine_paused([workload], api=None):  # type: ignore[arg-type]
@@ -895,14 +898,14 @@ class TestTheEngineIsResumedWhateverHappens:
         import ekn.cli as cli_module
 
         async def _pause(workloads: Any, **_kwargs: Any) -> list[Any]:
-            return [cli_module.enginepause.Paused(w, 1) for w in workloads]
+            return [enginepause.Paused(w, 1) for w in workloads]
 
         async def _resume(_paused: Any, **_kwargs: Any) -> list[str]:
             return ["StatefulSet argocd/c: nope"]
 
-        monkeypatch.setattr(cli_module.enginepause, "pause", _pause)
-        monkeypatch.setattr(cli_module.enginepause, "resume", _resume)
-        workload = cli_module.enginepause.Workload(namespace="argocd", name="c", kind="StatefulSet")
+        monkeypatch.setattr(enginepause, "pause", _pause)
+        monkeypatch.setattr(enginepause, "resume", _resume)
+        workload = enginepause.Workload(namespace="argocd", name="c", kind="StatefulSet")
 
         with pytest.raises(cli_module.EngineNotResumedError, match="not fully resumed"):
             async with cli_module._engine_paused([workload], api=None):  # type: ignore[arg-type]
@@ -1128,8 +1131,8 @@ class TestTheSweepUnderAssumeUnchanged:
         async def _apply_and_prune(*_args: Any, **_kwargs: Any) -> None:
             seen["cache"] = _kwargs["cache"]
 
-        monkeypatch.setattr(cli_module.fastcache, "open_cache", _open_cache)
-        monkeypatch.setattr(cli_module.livestate, "sweep", _sweep)
+        monkeypatch.setattr(fastcache, "open_cache", _open_cache)
+        monkeypatch.setattr(livestate, "sweep", _sweep)
         monkeypatch.setattr(cli_module, "apply_and_prune", _apply_and_prune)
 
         await _apply_groups(

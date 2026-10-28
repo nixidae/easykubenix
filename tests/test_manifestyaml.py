@@ -38,7 +38,7 @@ def test_raw_yaml_aliases_keep_their_anchors() -> None:
 
 
 def test_raw_yaml_cycles_keep_their_anchors() -> None:
-    value = {}
+    value: dict[str, object] = {}
     value["cycle"] = value
     expected = yaml.dump(value, Dumper=KubernetesDumper, sort_keys=False, default_flow_style=False)
     assert dump_manifest(value) == expected

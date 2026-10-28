@@ -6,7 +6,7 @@ import os
 import subprocess
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 import anyio
 import httpx
@@ -15,6 +15,12 @@ import pytest
 import yaml
 
 from ekn.eval import SopsAgeIdentity
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
+    from kr8s.asyncio import Api
+
 from ekn.sops import (
     SopsUpdateKeysError,
     _add_recipient_to_sops_config,
@@ -45,6 +51,10 @@ class FakeApi:
 
     namespace = "default"
 
+    def as_api(self) -> Api:
+        """This fake, typed as the client it stands in for."""
+        return cast("Api", self)
+
     def __init__(self, script: dict[tuple[str, str], Any]) -> None:
         self._script = script
         self.calls: list[tuple[str, str]] = []
@@ -60,7 +70,7 @@ class FakeApi:
         content: str | None = None,
         headers: dict[str, str] | None = None,
         params: dict[str, str] | None = None,
-    ):
+    ) -> AsyncIterator[_FakeResponse]:
         key = (method, url or "")
         self.calls.append(key)
         result = self._script[key]
@@ -105,7 +115,7 @@ class TestEnsureAgeIdentities:
 
         await ensure_age_identities(
             [SopsAgeIdentity.model_validate({"namespace": "argocd", "secretName": "sops-age-key"})],
-            api=api,
+            api=api.as_api(),
         )
 
         assert api.calls == [("GET", "secrets/sops-age-key")]
@@ -121,7 +131,7 @@ class TestEnsureAgeIdentities:
 
         await ensure_age_identities(
             [SopsAgeIdentity.model_validate({"namespace": "argocd", "secretName": "sops-age-key"})],
-            api=api,
+            api=api.as_api(),
         )
 
         assert ("PATCH", "namespaces/argocd") in api.calls
@@ -132,10 +142,20 @@ class TestEnsureAgeIdentities:
 
         class _CapturingApi(FakeApi):
             @asynccontextmanager
-            async def call_api(self, method: str, *, url: str | None = None, content: str | None = None, **kwargs: Any):
+            async def call_api(
+                self,
+                method: str,
+                *,
+                version: str | None = None,
+                url: str | None = None,
+                namespace: str | None = None,
+                content: str | None = None,
+                headers: dict[str, str] | None = None,
+                params: dict[str, str] | None = None,
+            ) -> AsyncIterator[_FakeResponse]:
                 if method == "PATCH" and url == "secrets/sops-age-key":
                     captured["body"] = json.loads(content or "{}")
-                async with super().call_api(method, url=url, content=content, **kwargs) as resp:
+                async with super().call_api(method, url=url, content=content) as resp:
                     yield resp
 
         api = _CapturingApi(
@@ -148,7 +168,7 @@ class TestEnsureAgeIdentities:
 
         await ensure_age_identities(
             [SopsAgeIdentity.model_validate({"namespace": "argocd", "secretName": "sops-age-key"})],
-            api=api,
+            api=api.as_api(),
         )
 
         assert set(captured["body"]["stringData"].keys()) == {"key.txt"}
@@ -209,10 +229,20 @@ class TestEnsureAgeIdentities:
 
         class _CapturingApi(FakeApi):
             @asynccontextmanager
-            async def call_api(self, method: str, *, url: str | None = None, content: str | None = None, **kwargs: Any):
+            async def call_api(
+                self,
+                method: str,
+                *,
+                version: str | None = None,
+                url: str | None = None,
+                namespace: str | None = None,
+                content: str | None = None,
+                headers: dict[str, str] | None = None,
+                params: dict[str, str] | None = None,
+            ) -> AsyncIterator[_FakeResponse]:
                 if method == "PATCH" and url == "secrets/sops-age-key":
                     captured["body"] = json.loads(content or "{}")
-                async with super().call_api(method, url=url, content=content, **kwargs) as resp:
+                async with super().call_api(method, url=url, content=content) as resp:
                     yield resp
 
         api = _CapturingApi(
@@ -234,7 +264,7 @@ class TestEnsureAgeIdentities:
                     }
                 )
             ],
-            api=api,
+            api=api.as_api(),
         )
 
         updated_config = yaml.safe_load(config_file.read_text())
@@ -284,7 +314,7 @@ class TestEnsureAgeIdentities:
                         }
                     )
                 ],
-                api=api,
+                api=api.as_api(),
             )
 
 

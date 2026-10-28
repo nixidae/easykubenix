@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, override
 
 import argcomplete
 import pytest
+from argcomplete.finders import CompletionFinder
 
 from ekn._cli import build_parser, complete
 from ekn.cli import Ekn
@@ -29,7 +30,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
 
-class QuietFinder(argcomplete.CompletionFinder):
+class QuietFinder(CompletionFinder):
     """The library's own finder, with its debug stream left alone.
 
     argcomplete opens file descriptor 9 for debug output, and pytest is already

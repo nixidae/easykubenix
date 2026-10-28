@@ -15,6 +15,7 @@ import json
 import os
 import pathlib
 import uuid
+from collections.abc import Mapping, Sequence
 
 import anyio
 import pytest
@@ -51,7 +52,7 @@ def _hook(tmp_path: pathlib.Path, script: str) -> str:
     return str(path)
 
 
-def _config(command: str | None, objects: list[dict[str, object]] | None = None) -> KubeApplyConfigResult:
+def _config(command: str | None, objects: Sequence[Mapping[str, object]] | None = None) -> KubeApplyConfigResult:
     return KubeApplyConfigResult.model_validate(
         {
             "groups": [

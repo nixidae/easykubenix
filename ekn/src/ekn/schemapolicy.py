@@ -68,7 +68,7 @@ def _as_dict(value: Any) -> dict[str, Any]:
 
 
 def _as_list(value: Any) -> list[Any]:
-    return cast("list[Any]", value) if isinstance(value, list) else []
+    return value if isinstance(value, list) else []
 
 
 def _metadata(obj: Mapping[str, Any]) -> dict[str, Any]:

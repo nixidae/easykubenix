@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -8,7 +9,10 @@ from ekn.git import commit_manifests, diff_manifests
 from ekn.gitops import flatten_manifests
 from ekn.nixyaml import from_go_like_yaml
 
-SAMPLE_MANIFESTS = [
+if TYPE_CHECKING:
+    from kappy.apply import Manifest
+
+SAMPLE_MANIFESTS: list[Manifest] = [
     {
         "apiVersion": "v1",
         "kind": "ConfigMap",
@@ -27,7 +31,7 @@ SAMPLE_MANIFESTS = [
 class TestFlattenManifests:
     @pytest.mark.parametrize("text", ["y", "Y", "n", "N", "08", "1e+06", "+_803.e+048", "-_9.e-515"])
     def test_strings_keep_their_type_in_kubernetes(self, text: str) -> None:
-        manifest = {
+        manifest: Manifest = {
             "apiVersion": "v1",
             "kind": "ConfigMap",
             "metadata": {"name": "scalar-probe"},
@@ -37,7 +41,7 @@ class TestFlattenManifests:
         assert from_go_like_yaml(content) == manifest
 
     def test_large_integer_schema_bounds_keep_their_value(self) -> None:
-        manifest = {
+        manifest: Manifest = {
             "apiVersion": "apiextensions.k8s.io/v1",
             "kind": "CustomResourceDefinition",
             "metadata": {"name": "probes.example.org"},
@@ -65,10 +69,10 @@ class TestFlattenManifests:
 
     def test_not_list(self) -> None:
         with pytest.raises(TypeError, match="expected list"):
-            flatten_manifests({"default": {}})
+            flatten_manifests({"default": {}})  # type: ignore[arg-type]  # the wrong type is the case under test
 
 
-SOPS_MANIFESTS = [
+SOPS_MANIFESTS: list[Manifest] = [
     *SAMPLE_MANIFESTS,
     {
         "apiVersion": "v1",
@@ -79,7 +83,7 @@ SOPS_MANIFESTS = [
     },
 ]
 
-CRD_MANIFEST = {
+CRD_MANIFEST: Manifest = {
     "apiVersion": "apiextensions.k8s.io/v1",
     "kind": "CustomResourceDefinition",
     "metadata": {"name": "probes.example.org"},
@@ -107,7 +111,7 @@ def test_skip_crds_ignores_both_sides_of_diff(test_repo: Path, change: str) -> N
 
 def test_skip_crds_keeps_workload_changes_visible(test_repo: Path) -> None:
     old = [*SAMPLE_MANIFESTS, CRD_MANIFEST]
-    new = [{**SAMPLE_MANIFESTS[0], "data": {"key": "updated"}}, SAMPLE_MANIFESTS[1], CRD_MANIFEST]
+    new: list[Manifest] = [{**SAMPLE_MANIFESTS[0], "data": {"key": "updated"}}, SAMPLE_MANIFESTS[1], CRD_MANIFEST]
     commit_manifests(str(test_repo), "test-render", flatten_manifests(old, kustomize=True), "baseline")
     diff = diff_manifests(
         str(test_repo), "test-render", flatten_manifests(new, kustomize=True, skip_crds=True), skip_crds=True
@@ -123,7 +127,7 @@ def test_skip_crds_ignores_new_crd_only_target(test_repo: Path) -> None:
 
 
 def test_skip_crds_ignores_encrypted_crd_generator(test_repo: Path) -> None:
-    crd = {**CRD_MANIFEST, "sops": {"age": [], "version": "3.9.0"}}
+    crd: Manifest = {**CRD_MANIFEST, "sops": {"age": [], "version": "3.9.0"}}
     old = flatten_manifests([*SAMPLE_MANIFESTS, crd], kustomize=True)
     commit_manifests(str(test_repo), "test-render", old, "baseline")
     new = flatten_manifests(SAMPLE_MANIFESTS, kustomize=True)
@@ -191,7 +195,7 @@ class TestCommit:
         files = flatten_manifests(SAMPLE_MANIFESTS)
         commit_manifests(".", "test-render", files, "first")
 
-        changed = [
+        changed: list[Manifest] = [
             {
                 "apiVersion": "v1",
                 "kind": "ConfigMap",

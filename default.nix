@@ -158,6 +158,7 @@ let
       ekn = [
         "profile"
         "test"
+        "typecheck"
       ];
       pytest-agent = [ ];
     };

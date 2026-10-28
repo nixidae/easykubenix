@@ -9,6 +9,7 @@ import anyio
 import pytest
 from huggorm.attrpath import AttrPathError
 from huggorm.errors import NixError
+from json_at import at, list_at, mapping_at
 from kappy.apply import DEFAULT_BARRIER_PRIORITY
 
 from ekn.engine import FIELD_MANAGER
@@ -455,7 +456,7 @@ class TestEknModule:
             root = await eval_.expr(self._object_check_probe(ekn_root, "deploymentUnits.good.objects"))
             result = await root.to_python()
         assert isinstance(result, list)
-        assert [obj["metadata"]["name"] for obj in result] == ["fine"]
+        assert [at(obj, "metadata", "name") for obj in result] == ["fine"]
 
     async def test_one_unit_never_forces_another_units_objects(self, ekn_root: str) -> None:
         # What makes `--target` fast. Anything that forces another unit's
@@ -487,7 +488,7 @@ class TestEknModule:
         async with evaluator() as eval_:
             result = await (await eval_.expr(nix)).to_python()
         assert isinstance(result, list)
-        assert [obj["metadata"]["name"] for obj in result] == ["fine"]
+        assert [at(obj, "metadata", "name") for obj in result] == ["fine"]
 
     async def test_generated_by_path(self, ekn_root: str) -> None:
         nix = f"""
@@ -505,8 +506,8 @@ class TestEknModule:
             result = await root.to_python()
         assert isinstance(result, dict)
         assert "default" in result
-        assert "ConfigMap" in result["default"]
-        assert "test" in result["default"]["ConfigMap"]
+        assert "ConfigMap" in mapping_at(result, "default")
+        assert "test" in mapping_at(result, "default", "ConfigMap")
 
     async def test_manifest_yaml_list(self, ekn_root: str) -> None:
         nix = f"""
@@ -567,7 +568,7 @@ class TestImportTimeTransformers:
         # because the transformer ran before the grouping read the namespace.
         buckets = await evaluate_file(NIX_TEST_FILE, "importTransformersBuckets")
         assert buckets == ["defaulted", "explicit"]
-        assert "none" not in buckets
+        assert "none" not in list_at(buckets)
 
         objects = self._by_name(await evaluate_file(NIX_TEST_FILE, "importTransformers"))
         assert objects["without-namespace"]["metadata"]["namespace"] == "defaulted"
@@ -756,7 +757,10 @@ class TestGitOpsTargetMetadata:
         objects = self._by_name(result["bootstrap"])
 
         def tracking(name: str) -> str | None:
-            return objects[name]["metadata"].get("annotations", {}).get("argocd.argoproj.io/tracking-id")
+            tracking_id: str | None = (
+                objects[name]["metadata"].get("annotations", {}).get("argocd.argoproj.io/tracking-id")
+            )
+            return tracking_id
 
         # A constant would be wrong on all but one object -- and wrong here
         # fails silently, because ArgoCD reads a non-self-referencing id as
@@ -1384,10 +1388,10 @@ class TestAssertionsAndWarnings:
             await evaluate_file(NIX_TEST_FILE, "pinnedIPv4OutsideCidrThrows")
 
     async def test_a_pinned_cluster_ip_inside_the_cidr_renders(self) -> None:
-        assert len(await evaluate_file(NIX_TEST_FILE, "pinnedIPv4InsideCidrRenders")) > 0
+        assert list_at(await evaluate_file(NIX_TEST_FILE, "pinnedIPv4InsideCidrRenders"))
 
     async def test_a_headless_service_pins_nothing_and_is_not_checked(self) -> None:
-        assert len(await evaluate_file(NIX_TEST_FILE, "headlessServiceRenders")) > 0
+        assert list_at(await evaluate_file(NIX_TEST_FILE, "headlessServiceRenders"))
 
     async def test_a_family_without_its_cidr_is_rejected(self) -> None:
         with pytest.raises(NixError, match="describe different stacks"):
@@ -1405,7 +1409,7 @@ class TestClusterInfo:
         assert await evaluate_file(NIX_TEST_FILE, "clusterInfoServiceSubnet") == "10.96.0.0/16"
 
     async def test_a_dual_stack_cluster_serves_its_services_and_the_harness(self) -> None:
-        assert len(await evaluate_file(NIX_TEST_FILE, "dualStackClusterRenders")) > 0
+        assert list_at(await evaluate_file(NIX_TEST_FILE, "dualStackClusterRenders"))
         assert await evaluate_file(NIX_TEST_FILE, "dualStackClusterServiceSubnet") == "10.96.0.0/16,fd00:96::/112"
 
 

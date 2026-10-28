@@ -212,11 +212,7 @@ async def ensure_age_identities(
         secret = await build_object(_secret_manifest(secret_name, namespace), api)
         try:
             await secret.async_refresh()
-            # kr8s.APIObject.raw returns a python-box `Box`, whose
-            # __getitem__/get etc. ship with zero type annotations upstream
-            # (box/box.py) -- pyright can't resolve indexing through it at
-            # all, with or without an intervening annotated variable.
-            key_text = base64.b64decode(secret.raw["data"][key]).decode()  # pyright: ignore[reportUnknownArgumentType] -- python-box Box's __getitem__ ships with zero upstream type annotations
+            key_text = base64.b64decode(secret.raw["data"][key]).decode()
         except kr8s.NotFoundError:
             # The Secret's own namespace may not exist yet either (e.g. a
             # fresh bootstrap target whose Namespace object hasn't been

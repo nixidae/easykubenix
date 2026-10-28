@@ -20,7 +20,7 @@ modules never do.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 import structlog.testing
@@ -28,7 +28,10 @@ import structlog.testing
 from ekn.eval import GitOpsManifestsResult
 from ekn.gitops import file_groups, without_seeded
 
-_SEEDED = {
+if TYPE_CHECKING:
+    from kappy.apply import Manifest
+
+_SEEDED: Manifest = {
     "apiVersion": "v1",
     "kind": "Secret",
     "metadata": {
@@ -39,7 +42,7 @@ _SEEDED = {
     "stringData": {"apiToken": "$ekn:env:SOLID_CLOUDFLARE_TOKEN"},
 }
 
-_PLAIN = {
+_PLAIN: Manifest = {
     "apiVersion": "v1",
     "kind": "ConfigMap",
     "metadata": {"name": "settings", "namespace": "cert-manager"},
@@ -76,7 +79,7 @@ class TestWithoutSeeded:
         """The annotation is what says "seeded", not the string's shape. A
         `data` value that merely looks like a reference is somebody's literal
         and not ours to drop."""
-        lookalike = {
+        lookalike: Manifest = {
             "apiVersion": "v1",
             "kind": "ConfigMap",
             "metadata": {"name": "docs", "namespace": "default"},

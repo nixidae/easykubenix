@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 
 import pygit2
 import pytest
+from pygit2.enums import FileMode
 
 from ekn.git import (
     ConcurrentDeployError,
@@ -28,7 +29,7 @@ def _init_repo(path: Path) -> pygit2.Repository:
 def _write_blob_tree(repo: pygit2.Repository, path: str, content: str) -> pygit2.Oid:
     index = pygit2.Index()
     blob_id = repo.create_blob(content.encode())
-    index.add(pygit2.IndexEntry(path, blob_id, pygit2.GIT_FILEMODE_BLOB))  # pyright: ignore[reportArgumentType] -- pygit2 GIT_FILEMODE_BLOB is an int but IndexEntry.mode's stub wants its own enum
+    index.add(pygit2.IndexEntry(path, blob_id, FileMode.BLOB))
     return index.write_tree(repo)
 
 

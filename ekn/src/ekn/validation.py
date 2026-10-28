@@ -31,7 +31,8 @@ TERMINATE_GRACE = 5.0
 def _free_port() -> int:
     with socket.socket() as s:
         s.bind(("", 0))
-        return s.getsockname()[1]
+        port: int = s.getsockname()[1]
+        return port
 
 
 async def exec_capture(

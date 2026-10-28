@@ -87,7 +87,9 @@ def _events(value: object) -> Iterator[Event]:
 def dump_manifest(value: object) -> str:
     """Emit one Kubernetes YAML document, preserving mapping order and scalar types."""
     try:
-        return yaml.emit(_events(value), Dumper=yaml.CSafeDumper)
+        emitted: str = yaml.emit(_events(value), Dumper=yaml.CSafeDumper)
     except _UseRepresenterError:
         # Raw YAML can contain aliases, cycles, or types outside JSON.
-        return yaml.dump(value, Dumper=KubernetesDumper, sort_keys=False, default_flow_style=False)
+        dumped: str = yaml.dump(value, Dumper=KubernetesDumper, sort_keys=False, default_flow_style=False)
+        return dumped
+    return emitted

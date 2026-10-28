@@ -31,7 +31,8 @@ import kr8s
 import kr8s.asyncio
 import pytest
 from anyio import Path as AnyioPath
-from kappy.apply import build_object
+from json_at import at, mapping_at, text_at
+from kappy.apply import build_object, raw_manifest
 
 from ekn import seeds
 from ekn.engine import apply_and_prune
@@ -41,11 +42,13 @@ from ekn.validation import EphemeralControlPlane
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
+    from kappy.apply import Manifest
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 FIXTURE = PROJECT_ROOT / "tests/seed_integration.nix"
 
 VARIABLE = "EKN_TEST_SEED_PASSWORD"
-SECRET = {
+SECRET: Manifest = {
     "apiVersion": "v1",
     "kind": "Secret",
     "metadata": {"name": "repo-creds", "namespace": "default"},
@@ -90,8 +93,8 @@ async def live_password(api: Any) -> str | None:
         await obj.async_refresh()
     except kr8s.NotFoundError:
         return None
-    data = dict(obj.raw).get("data") or {}
-    encoded = data.get("password")
+    data = raw_manifest(obj).get("data")
+    encoded = data.get("password") if isinstance(data, dict) else None
     return base64.b64decode(encoded).decode() if isinstance(encoded, str) else None
 
 
@@ -210,7 +213,7 @@ async def test_nothing_reaches_the_cluster_holding_a_reference(
         decoded = json.dumps(
             {
                 key: base64.b64decode(value).decode(errors="replace")
-                for key, value in (dict(obj.raw).get("data") or {}).items()
+                for key, value in mapping_at(raw_manifest(obj), "data").items()
                 if isinstance(value, str)
             }
         )
@@ -289,7 +292,10 @@ async def test_other_fields_reconcile_while_the_credential_is_left_alone(
     assert [a.verb for a in actions] == ["skip"]
     secret = await build_object(dict(SECRET), api)
     await secret.async_refresh()
-    stored = {key: base64.b64decode(value).decode() for key, value in (dict(secret.raw).get("data") or {}).items()}
+    stored = {
+        key: base64.b64decode(text_at(value)).decode()
+        for key, value in mapping_at(raw_manifest(secret), "data").items()
+    }
     assert stored["username"] == "oauth2", "an unrelated field change did not reconcile"
     assert stored["password"] == "lifecycle-secret", "the credential was not left alone"
 
@@ -330,7 +336,7 @@ async def test_prune_does_not_delete_a_seed_it_could_not_produce(
 
     monkeypatch.delenv(VARIABLE, raising=False)
     plan = await seeds.resolve(objects, api=api)
-    names = [o["metadata"]["name"] for o in plan.objects]
+    names = [at(o, "metadata", "name") for o in plan.objects]
     assert "repo-creds" not in names, "fixture no longer exercises the drop branch"
 
     await apply_and_prune(

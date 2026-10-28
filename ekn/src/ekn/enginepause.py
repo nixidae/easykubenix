@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING
 
 import kr8s
 import structlog
-from kappy.apply import ObjectKey
+from kappy.apply import ObjectKey, raw_manifest, raw_metadata
 from kappy.converge import object_key
 from kr8s.asyncio.objects import Deployment, StatefulSet
 
@@ -101,19 +101,18 @@ async def _fetch(api: Api, workload: Workload) -> APIObject:
 
 
 def _recorded_replicas(obj: APIObject) -> int | None:
-    metadata = obj.raw.get("metadata")
-    annotations = metadata.get("annotations") if isinstance(metadata, dict) else None
+    annotations = raw_metadata(obj).get("annotations")
     recorded = annotations.get(PAUSED_REPLICAS_ANNOTATION) if isinstance(annotations, dict) else None
-    if recorded is None:
+    if not isinstance(recorded, str):
         return None
     try:
         return int(recorded)
-    except (TypeError, ValueError):
+    except ValueError:
         return None
 
 
 def _spec_replicas(obj: APIObject) -> int:
-    spec = obj.raw.get("spec")
+    spec = raw_manifest(obj).get("spec")
     replicas = spec.get("replicas") if isinstance(spec, dict) else None
     return replicas if isinstance(replicas, int) else 1
 

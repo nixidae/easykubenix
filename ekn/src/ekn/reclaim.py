@@ -34,7 +34,7 @@ import copy
 from typing import TYPE_CHECKING, Any
 
 import structlog
-from kappy.apply import build_object
+from kappy.apply import build_object, raw_metadata
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping, Sequence
@@ -149,7 +149,8 @@ async def reclaim_one(
         log.debug("reclaim_object_absent", kind=obj.kind, name=obj.name, namespace=obj.namespace)
         return False
 
-    entries = obj.raw.get("metadata", {}).get("managedFields") or []
+    managed = raw_metadata(obj).get("managedFields")
+    entries = [entry for entry in managed if isinstance(entry, dict)] if isinstance(managed, list) else []
     rewritten = rewrite_managed_fields(entries, old=old, new=new)
     if rewritten is None:
         return False

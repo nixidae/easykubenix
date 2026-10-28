@@ -108,7 +108,7 @@ def cel_view(schema: Mapping[str, Any], value: Any) -> Any:
     if isinstance(value, list):
         sub = schema.get("items")
         sub_schema = cast("Mapping[str, Any]", sub) if isinstance(sub, dict) else {}
-        return [cel_view(sub_schema, child) for child in cast("list[Any]", value)]
+        return [cel_view(sub_schema, child) for child in value]
     return value
 
 
@@ -131,7 +131,8 @@ class _LazyMap(celtypes.MapType):
         self._raw = dict(raw)
         for key in RESERVED.intersection(raw):
             self._raw.setdefault(f"__{key}__", raw[key])
-        dict.update(self, dict.fromkeys(map(celtypes.StringType, self._raw)))
+        # `None` holds each key's place until `__getitem__` converts its value.
+        dict.update(self, dict.fromkeys(map(celtypes.StringType, self._raw)))  # type: ignore[arg-type]
 
     def __getitem__(self, key: Any) -> Any:
         value = super().__getitem__(key)
@@ -151,7 +152,7 @@ def lazy_cel(value: Any) -> Any:
     if isinstance(value, dict):
         return _LazyMap(cast("dict[str, Any]", value))
     if isinstance(value, list):
-        return celtypes.ListType([lazy_cel(child) for child in cast("list[Any]", value)])
+        return celtypes.ListType([lazy_cel(child) for child in value])
     return json_to_cel(value)
 
 
@@ -201,6 +202,7 @@ class CelChecker:
         program = self._program(text)
         if isinstance(program, str):
             return Unsupported(program)
+        outcome: Result | CELEvalError
         try:
             outcome = program.evaluate(dict(activation))
         except CELEvalError as exc:
@@ -251,5 +253,5 @@ class CelChecker:
         elif isinstance(value, list):
             sub = schema.get("items")
             if isinstance(sub, dict):
-                for index, child in enumerate(cast("list[Any]", value)):
+                for index, child in enumerate(value):
                     self.walk(cast("Mapping[str, Any]", sub), child, f"{path}/{index}", result)

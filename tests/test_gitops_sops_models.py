@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pytest
 from pydantic import ValidationError
 
 from ekn.eval import GitOpsTargetEntry, SopsAgeIdentity
 from ekn.gitops import GitOpsTarget, resolved_targets
+
+if TYPE_CHECKING:
+    from kappy.apply import Manifest
 
 
 def test_gitops_target_entry_accepts_a_well_formed_entry() -> None:
@@ -55,10 +60,11 @@ def test_resolved_targets_merges_two_names_sharing_the_same_path() -> None:
     }
     routed = resolved_targets(gitops_targets)
     assert list(routed.keys()) == [GitOpsTarget(path="clusters/prod")]
-    assert routed[GitOpsTarget(path="clusters/prod")] == [
+    expected: list[Manifest] = [
         {"kind": "ConfigMap", "metadata": {"name": "a"}},
         {"kind": "ConfigMap", "metadata": {"name": "b"}},
     ]
+    assert routed[GitOpsTarget(path="clusters/prod")] == expected
 
 
 def test_sops_age_identity_accepts_a_minimal_entry_with_defaults() -> None:

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import NoReturn
 
 import pytest
 
@@ -52,12 +53,12 @@ class TestAssertCachedCommand:
 
         assert storecheck.store_paths_in_text(written.read_text()) == {CACHED.removeprefix("/nix/store/")}
 
-    async def test_an_unfetchable_path_exits_nonzero(self, tmp_path: Path, monkeypatch) -> None:
+    async def test_an_unfetchable_path_exits_nonzero(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """The whole point: a path no substituter serves stops the pipeline
         rather than reaching a node that cannot build it."""
         from ekn import storecheck
 
-        async def refuse(roots, **_):
+        async def refuse(roots: set[str], **_: object) -> NoReturn:
             raise storecheck.StorePathsUnavailableError(f"{len(roots)} path(s) on no substituter")
 
         monkeypatch.setattr(storecheck, "assert_fetchable", refuse)

@@ -4,11 +4,15 @@ import json
 import os
 import subprocess
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import anyio
 import pytest
 
 from ekn.sops import SopsDecryptError, maybe_decrypt
+
+if TYPE_CHECKING:
+    from kappy.apply import Manifest
 
 
 @pytest.fixture(scope="module")
@@ -30,7 +34,7 @@ def _public_key(key_file: Path) -> str:
     raise AssertionError(f"no public key comment in {key_file}")
 
 
-def _sops_encrypt(obj: dict, key_file: Path) -> dict:
+def _sops_encrypt(obj: Manifest, key_file: Path) -> Manifest:
     env = os.environ | {"SOPS_AGE_KEY_FILE": str(key_file)}
     proc = subprocess.run(
         [
@@ -49,12 +53,13 @@ def _sops_encrypt(obj: dict, key_file: Path) -> dict:
         env=env,
         check=True,
     )
-    return json.loads(proc.stdout)
+    encrypted: Manifest = json.loads(proc.stdout)
+    return encrypted
 
 
 class TestMaybeDecrypt:
     async def test_passthrough_when_no_sops_key(self) -> None:
-        obj = {"apiVersion": "v1", "kind": "ConfigMap", "metadata": {"name": "plain"}}
+        obj: Manifest = {"apiVersion": "v1", "kind": "ConfigMap", "metadata": {"name": "plain"}}
 
         result = await maybe_decrypt(obj)
 
@@ -62,7 +67,7 @@ class TestMaybeDecrypt:
 
     async def test_decrypts_a_sops_encrypted_object(self, age_key: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("SOPS_AGE_KEY_FILE", str(age_key))
-        plain = {
+        plain: Manifest = {
             "apiVersion": "v1",
             "kind": "Secret",
             "metadata": {"name": "test"},
@@ -78,7 +83,7 @@ class TestMaybeDecrypt:
     async def test_raises_on_decrypt_failure(
         self, age_key: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        plain = {"apiVersion": "v1", "kind": "Secret", "metadata": {"name": "test"}}
+        plain: Manifest = {"apiVersion": "v1", "kind": "Secret", "metadata": {"name": "test"}}
         encrypted = _sops_encrypt(plain, age_key)
         # Point at a key file with no matching identity -- decrypt must fail.
         wrong_key = tmp_path / "wrong.txt"

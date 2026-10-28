@@ -23,6 +23,7 @@ import pytest
 # The double an apply test needs: discovery, PATCH, a listing for the prune
 # and a metadata sweep. Imported rather than copied so both suites describe
 # one API server.
+from kappy.apply import ObjectKey
 from kappy.testing import FakeApi
 
 from ekn.engine import apply_and_prune, converge_direct
@@ -39,16 +40,19 @@ if TYPE_CHECKING:
 LIVE = "1"
 
 
-def manifest(name: str = "cm", **data: Any) -> Manifest:
+def manifest(name: str = "cm", **data: str) -> Manifest:
     return {
         "apiVersion": "v1",
         "kind": "ConfigMap",
         "metadata": {"name": name, "namespace": "default"},
-        "data": data or {"a": "1"},
+        "data": {**data} if data else {"a": "1"},
     }
 
 
-def live_at(version: str | None = LIVE, key: tuple[str, str, str] = ("default", "ConfigMap", "cm")) -> Any:
+CONFIG_MAP = ObjectKey("default", "ConfigMap", "cm")
+
+
+def live_at(version: str | None = LIVE, key: ObjectKey = CONFIG_MAP) -> Any:
     """A sweep result holding one object at *version*."""
     return {key: LiveObject(key=key, resource_version=version)}
 
@@ -78,7 +82,7 @@ class TestDigest:
         assert digest(manifest(a="1"), field_manager="ekn") != digest(manifest(a="2"), field_manager="ekn")
 
 
-KEY = ("default", "ConfigMap", "cm")
+KEY = ObjectKey("default", "ConfigMap", "cm")
 
 
 class TestWhatIsSkipped:
@@ -192,7 +196,7 @@ class TestCredentials:
     """A digest of the sent bytes is a brute-force oracle for the one field a
     SOPS-encrypted or seeded object does not keep in git."""
 
-    IDENTITY = ("default", "ConfigMap", "cm")
+    IDENTITY = ObjectKey("default", "ConfigMap", "cm")
 
     def test_a_named_object_is_never_recorded(self) -> None:
         store = cache_for_test(assume_unchanged=True, never_record=frozenset({self.IDENTITY}))
@@ -355,7 +359,7 @@ class TestAgainstAnApply:
         "metadata": {"name": "vpa", "namespace": "default"},
     }
 
-    KEY: ClassVar[tuple[str, str, str]] = ("default", "VerticalPodAutoscaler", "vpa")
+    KEY: ClassVar[ObjectKey] = ObjectKey("default", "VerticalPodAutoscaler", "vpa")
 
     async def test_a_recorded_object_is_not_sent_again(self, tmp_path: Path) -> None:
         """The whole point, end to end: apply, sweep, apply again.
@@ -401,8 +405,8 @@ class TestAgainstAnApply:
         store.record(self.SPEC, field_manager="ekn", resource_version="1")
         api = FakeApi(
             listed=[
-                ("default", "VerticalPodAutoscaler", "vpa"),
-                ("default", "VerticalPodAutoscaler", "stale"),
+                ObjectKey("default", "VerticalPodAutoscaler", "vpa"),
+                ObjectKey("default", "VerticalPodAutoscaler", "stale"),
             ]
         )
         store.live = await sweep_of(api)
@@ -421,7 +425,7 @@ class TestAgainstAnApply:
         )
 
         assert api.patched == []
-        assert api.deleted == [("default", "VerticalPodAutoscaler", "stale")]
+        assert api.deleted == [ObjectKey("default", "VerticalPodAutoscaler", "stale")]
 
     async def test_the_converging_apply_skips_and_still_desires(self, tmp_path: Path) -> None:
         """`--converge` reaches the cache through a different seam than the
@@ -429,7 +433,7 @@ class TestAgainstAnApply:
         have to answer the same."""
         store = cache(tmp_path, assume_unchanged=True)
         store.record(self.SPEC, field_manager="ekn", resource_version="1")
-        api = FakeApi(listed=[("default", "VerticalPodAutoscaler", "vpa")])
+        api = FakeApi(listed=[ObjectKey("default", "VerticalPodAutoscaler", "vpa")])
         store.live = await sweep_of(api)
 
         report, desired = await converge_direct([self.SPEC], api=api, environment="prod", cache=store)  # type: ignore[arg-type]
@@ -442,7 +446,7 @@ class TestAgainstAnApply:
         """The same mutation control on the other seam."""
         store = cache(tmp_path, assume_unchanged=True)
         store.record(self.SPEC, field_manager="ekn", resource_version="1")
-        api = FakeApi(listed=[("default", "VerticalPodAutoscaler", "vpa")])
+        api = FakeApi(listed=[ObjectKey("default", "VerticalPodAutoscaler", "vpa")])
         api.write(self.KEY)
         store.live = await sweep_of(api)
 
@@ -536,7 +540,7 @@ class TestTheCredentialRuleOnEveryPath:
 
         from_file = _uncacheable_objects(await load_manifest_objects(str(path)))
 
-        assert from_file == {("default", "Secret", "credential")}
+        assert from_file == {ObjectKey("default", "Secret", "credential")}
 
     def test_a_decrypted_object_no_longer_names_itself(self) -> None:
         """The negative control, and the reason `_applyManifest` reads the
@@ -570,7 +574,7 @@ def stamped(**data: Any) -> Manifest:
 def on_cluster(
     hash_value: str | None = STAMPED,
     *,
-    environment: str = "prod",
+    environment: str | None = "prod",
     managers: frozenset[str] = frozenset({"ekn"}),
     version: str = LIVE,
 ) -> Any:

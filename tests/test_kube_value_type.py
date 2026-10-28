@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 from huggorm.errors import NixError
+from json_at import at, mapping_at
 
 from ekn.eval import evaluate_file
 
@@ -271,7 +272,7 @@ class TestTheBranchOrderIsLoadBearing:
             "command": "/bin/sh",
             "notAPath": "/nix/store/0000000000000000000000000000000-nothing-here",
         }
-        assert all(isinstance(value, str) for value in result.values())
+        assert all(isinstance(value, str) for value in mapping_at(result).values())
 
     async def test_a_lone_marked_list_still_becomes_a_list(self) -> None:
         """`namedListOf` must precede `objectType`, which the file already
@@ -684,8 +685,8 @@ class TestPrioritiesInsideAnEntry:
     async def test_replace_metadata_is_one_entry_per_element(self) -> None:
         # The invariant `metadataTracksTheValue` keeps on the named branch.
         result = await evaluate_file(NIX_TEST_FILE, "replaceMetadataTracksTheValue")
-        assert result["value"] == ["--a=1", "--b=2"]
-        assert result["metaLength"] == 2
+        assert at(result, "value") == ["--a=1", "--b=2"]
+        assert at(result, "metaLength") == 2
 
     async def test_replace_markers_compose_with_mk_merge(self) -> None:
         # `mkMerge` is the list form. The module system expands it into one

@@ -6,10 +6,11 @@ from typing import TYPE_CHECKING
 
 import pytest
 import yaml
+from json_at import at
 from yaml.representer import RepresenterError
 
 from ekn.nixyaml import (
-    _parse_error_message,  # pyright: ignore[reportPrivateUsage] -- test reaches into the private helper for direct unit coverage of its fallback branches
+    _parse_error_message,
     from_go_like_yaml,
     from_go_like_yaml_stream,
     from_yaml,
@@ -110,7 +111,7 @@ def test_from_yaml11_reads_a_float_the_way_helm_writes_one(text: str, expected: 
     parsed = from_yaml11(f"value: {text}")
 
     assert parsed == {"value": expected}
-    assert isinstance(parsed["value"], type(expected))  # type: ignore[reportIndexIssue] -- JsonValue is a union, and this document is a mapping
+    assert isinstance(at(parsed, "value"), type(expected))
 
 
 @pytest.mark.parametrize(
@@ -380,10 +381,11 @@ def test_a_scalar_with_no_json_number_is_refused(text: str) -> None:
 
 
 def test_a_merge_key_merges() -> None:
-    assert from_go_like_yaml("base: &b {a: 1}\nuse:\n  <<: *b\n  b: 2\n") == {
+    merged: JsonValue = {
         "base": {"a": 1},
         "use": {"a": 1, "b": 2},
     }
+    assert from_go_like_yaml("base: &b {a: 1}\nuse:\n  <<: *b\n  b: 2\n") == merged
 
 
 def test_from_go_like_yaml_reads_a_stream() -> None:

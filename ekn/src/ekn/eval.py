@@ -10,7 +10,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from os import PathLike
 from pathlib import Path as _SyncPath
-from typing import TYPE_CHECKING, Annotated, Any, cast
+from typing import TYPE_CHECKING, Annotated, Any, Protocol, cast
 from urllib.parse import SplitResult, urlsplit
 
 import anyio
@@ -38,7 +38,7 @@ from ekn.storecheck import STORE_DIR, store_paths_in_text
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Generator, Iterable, Sequence
 
-    from huggorm import AsyncStore
+    from huggorm import StorePath
     from huggorm.jsonprimop import JsonValue
 
 # Every `_evaluator()` call anywhere below reads these -- letting `ekn deploy`
@@ -696,7 +696,7 @@ async def evaluate_generated_with_spec(
         t_before_force = time.monotonic()
         if targets:
             groups = await _target_groups(proxy.attr("kubernetes").attr("deploymentUnits"), targets)
-            result = [obj for group in groups for obj in group["objects"]]
+            result: JsonValue = [obj for group in groups for obj in group["objects"]]
         else:
             result = await proxy.attr("kubernetes").attr("generated").to_python()
         t_after_force = time.monotonic()
@@ -1328,7 +1328,25 @@ def _pushing_ssh_opts(uri: str, *, accept_new_host_keys: bool) -> Generator[None
             os.environ["NIX_SSHOPTS"] = previous
 
 
-async def _closure_size(source: AsyncStore, paths: list[str]) -> tuple[int, int]:
+class _NarSized(Protocol):
+    def nar_size(self) -> int: ...
+
+
+class ClosureReader(Protocol):
+    """The reads `_closure_size` makes of a store; `AsyncStore` is one."""
+
+    async def compute_fs_closure(self, paths: list[StorePath], /) -> list[StorePath]: ...
+
+    async def query_path_info(self, path: StorePath, /) -> _NarSized: ...
+
+
+class PathChecker(Protocol):
+    """The read `_refuse_unrealised` makes of a store; `AsyncStore` is one."""
+
+    async def is_valid_path(self, path: StorePath, /) -> bool: ...
+
+
+async def _closure_size(source: ClosureReader, paths: list[str]) -> tuple[int, int]:
     """How many paths the copy covers, and their NAR size, read from *source*.
 
     **The whole closure, and not the part the destination lacks.** The count
@@ -1350,7 +1368,7 @@ class UnrealisedPathsError(RuntimeError):
     """The push was refused because this machine does not hold every path."""
 
 
-async def _refuse_unrealised(source: AsyncStore, paths: list[str]) -> None:
+async def _refuse_unrealised(source: PathChecker, paths: list[str]) -> None:
     """Stop before a copy that would silently move a smaller set.
 
     A path the manifest names as text is not necessarily on this machine.

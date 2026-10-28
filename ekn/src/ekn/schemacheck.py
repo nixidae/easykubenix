@@ -106,7 +106,7 @@ class ObjectRef:
 
 
 def _with_null(types: Any) -> list[Any]:
-    listed = list(cast("list[Any]", types)) if isinstance(types, list) else [types]
+    listed = list(types) if isinstance(types, list) else [types]
     return listed if "null" in listed else [*listed, "null"]
 
 
@@ -140,7 +140,7 @@ def to_json_schema(node: Any) -> Any:
     - `$ref`s move from `#/components/schemas/` to `#/definitions/`.
     """
     if isinstance(node, list):
-        return [to_json_schema(item) for item in cast("list[Any]", node)]
+        return [to_json_schema(item) for item in node]
     if not isinstance(node, dict):
         return node
     source = cast("dict[str, Any]", node)
@@ -169,7 +169,7 @@ def _convert_keywords(source: dict[str, Any]) -> dict[str, Any]:
         if key in _SCHEMA_KEYWORDS and isinstance(value, dict):
             out[key] = to_json_schema(value)
         elif key in _SCHEMA_LIST_KEYWORDS and isinstance(value, list):
-            out[key] = [to_json_schema(item) for item in cast("list[Any]", value)]
+            out[key] = [to_json_schema(item) for item in value]
         elif key in _SCHEMA_MAP_KEYWORDS and isinstance(value, dict):
             out[key] = {name: to_json_schema(sub) for name, sub in cast("dict[str, Any]", value).items()}
         elif key == "$ref" and isinstance(value, str) and value.startswith(COMPONENTS_PREFIX):
@@ -365,12 +365,12 @@ class Catalog:
         if self._object_meta is None and OBJECT_META in schemas:
             self._object_meta = compiled
         for name, schema in schemas.items():
-            for gvk in cast(
+            for declared in cast(
                 "list[Mapping[str, Any]]",
                 cast("Mapping[str, Any]", schema).get("x-kubernetes-group-version-kind") or [],
             ):
                 self._put(
-                    GroupVersionKind(str(gvk.get("group", "")), str(gvk["version"]), str(gvk["kind"])),
+                    GroupVersionKind(str(declared.get("group", "")), str(declared["version"]), str(declared["kind"])),
                     _Entry(origin, compiled, name),
                 )
         for gvk, resource in _path_resources(cast("Mapping[str, Any]", document.get("paths") or {})):

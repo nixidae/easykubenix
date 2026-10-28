@@ -5,13 +5,14 @@ Issue nixidae/nixidae#450.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 import kr8s
 import pytest
 
 # The same API server double the apply suite uses, so one description of a
 # cluster serves the sweep, the apply and the prune.
+from kappy.apply import ObjectKey
 from kappy.testing import FakeApi
 
 from ekn.livestate import (
@@ -27,18 +28,19 @@ from ekn.livestate import (
 )
 
 if TYPE_CHECKING:
-    from kappy.apply import Manifest
+    from huggorm.jsonprimop import JsonValue
+    from kappy.apply import Manifest, Resource
 
 ENV = "nixlab2"
 
 
 def manifest(name: str = "a", hash_value: str | None = None, **annotations: str) -> Manifest:
-    metadata: dict[str, Any] = {"name": name, "namespace": "default"}
+    metadata: Manifest = {"name": name, "namespace": "default"}
     combined = dict(annotations)
     if hash_value is not None:
         combined[HASH_ANNOTATION] = hash_value
     if combined:
-        metadata["annotations"] = combined
+        metadata["annotations"] = {**combined}
     return {"apiVersion": "v1", "kind": "ConfigMap", "metadata": metadata}
 
 
@@ -49,7 +51,7 @@ def live(
     managers: frozenset[str] = frozenset({"ekn"}),
 ) -> LiveObject:
     return LiveObject(
-        key=("default", "ConfigMap", name),
+        key=ObjectKey("default", "ConfigMap", name),
         manifest_hash=hash_value,
         environment=environment,
         managers=managers,
@@ -162,7 +164,7 @@ class TestForeignOwners:
         """Taking fields from the GitOps engine is the intent of this mode,
         so reporting it would bury the surprising half in noise."""
         obj = LiveObject(
-            key=("vm", "Deployment", "victoria-metrics-operator"),
+            key=ObjectKey("vm", "Deployment", "victoria-metrics-operator"),
             managers=frozenset({"argocd-controller", "kube-controller-manager", "ekn"}),
         )
 
@@ -170,29 +172,29 @@ class TestForeignOwners:
 
     def test_a_controller_that_owns_a_field_is_reported(self) -> None:
         obj = LiveObject(
-            key=("default", "Service", "traefik"),
+            key=ObjectKey("default", "Service", "traefik"),
             managers=frozenset({"argocd-controller", "cilium-operator-lb-ipam"}),
         )
 
         assert foreign_owners([obj], engine_managers=self.ENGINE) == [
-            ForeignOwner(("default", "Service", "traefik"), ("cilium-operator-lb-ipam",)),
+            ForeignOwner(ObjectKey("default", "Service", "traefik"), ("cilium-operator-lb-ipam",)),
         ]
 
     def test_a_person_who_ran_a_rollout_is_reported(self) -> None:
         """The case in miniature: somebody ran `kubectl rollout restart`,
         that manager still owns a field, and nothing says so."""
-        obj = LiveObject(key=("apps", "Deployment", "web"), managers=frozenset({"ekn", "kubectl-rollout"}))
+        obj = LiveObject(key=ObjectKey("apps", "Deployment", "web"), managers=frozenset({"ekn", "kubectl-rollout"}))
 
         assert foreign_owners([obj], engine_managers=self.ENGINE)[0].managers == ("kubectl-rollout",)
 
     def test_the_managers_are_sorted(self) -> None:
-        obj = LiveObject(key=("a", "B", "c"), managers=frozenset({"zeta", "alpha"}))
+        obj = LiveObject(key=ObjectKey("a", "B", "c"), managers=frozenset({"zeta", "alpha"}))
 
         assert foreign_owners([obj], engine_managers=())[0].managers == ("alpha", "zeta")
 
 
 #: One kind the API server serves, described as discovery describes it.
-VPA: dict[str, Any] = {
+VPA: Resource = {
     "version": "autoscaling.k8s.io/v1",
     "kind": "VerticalPodAutoscaler",
     "name": "verticalpodautoscalers",
@@ -201,7 +203,7 @@ VPA: dict[str, Any] = {
 }
 #: A second one, so a test can show that one bad kind does not take the rest
 #: of the sweep with it.
-CRD: dict[str, Any] = {
+CRD: Resource = {
     "version": "apiextensions.k8s.io/v1",
     "kind": "CustomResourceDefinition",
     "name": "customresourcedefinitions",
@@ -219,9 +221,9 @@ class TestTheSweep:
         """Whole objects are 18 times the bytes, and a LIST without
         `resourceVersion=0` is a quorum read against etcd per kind. These are
         the two measurements the sweep exists for."""
-        api = FakeApi(resources=[VPA], listed=[("default", "VerticalPodAutoscaler", "vpa")])
+        api = FakeApi(resources=[VPA], listed=[ObjectKey("default", "VerticalPodAutoscaler", "vpa")])
 
-        await sweep(api, KINDS)
+        await sweep(api.as_api(), KINDS)
 
         assert api.list_requests
         for params, headers in api.list_requests:
@@ -229,18 +231,19 @@ class TestTheSweep:
             assert params.get("resourceVersion") == "0"
 
     async def test_it_reads_what_the_three_consumers_need(self) -> None:
-        api = FakeApi(resources=[VPA], listed=[("default", "VerticalPodAutoscaler", "vpa")])
-        api.live[("default", "VerticalPodAutoscaler", "vpa")] |= {
+        api = FakeApi(resources=[VPA], listed=[ObjectKey("default", "VerticalPodAutoscaler", "vpa")])
+        metadata: Manifest = {
             "annotations": {HASH_ANNOTATION: "sha256:abc"},
             "labels": {"ekn.dev/environment": ENV, "ekn.dev/deployment-unit": "core"},
             "managedFields": [{"manager": "ekn"}, {"manager": "kubectl-edit"}],
         }
+        api.live[ObjectKey("default", "VerticalPodAutoscaler", "vpa")] |= metadata
 
-        state = await sweep(api, KINDS)
+        state = await sweep(api.as_api(), KINDS)
 
         assert state == {
-            ("default", "VerticalPodAutoscaler", "vpa"): LiveObject(
-                key=("default", "VerticalPodAutoscaler", "vpa"),
+            ObjectKey("default", "VerticalPodAutoscaler", "vpa"): LiveObject(
+                key=ObjectKey("default", "VerticalPodAutoscaler", "vpa"),
                 manifest_hash="sha256:abc",
                 environment=ENV,
                 unit="core",
@@ -253,9 +256,9 @@ class TestTheSweep:
         """Every item of a `PartialObjectMetadataList` reports `kind:
         PartialObjectMetadata`. Keyed by that, the sweep matches no manifest
         and the gate skips nothing, for ever, while looking healthy."""
-        api = FakeApi(resources=[VPA], listed=[("default", "VerticalPodAutoscaler", "vpa")])
+        api = FakeApi(resources=[VPA], listed=[ObjectKey("default", "VerticalPodAutoscaler", "vpa")])
 
-        state = await sweep(api, KINDS)
+        state = await sweep(api.as_api(), KINDS)
 
         assert [key[1] for key in state] == ["VerticalPodAutoscaler"]
 
@@ -263,11 +266,11 @@ class TestTheSweep:
         """On a first apply the CustomResourceDefinition that establishes a
         kind is in this same run, so the kind is not served yet. That is the
         ordinary state and not a failure."""
-        api = FakeApi(resources=[VPA], listed=[("default", "VerticalPodAutoscaler", "vpa")])
+        api = FakeApi(resources=[VPA], listed=[ObjectKey("default", "VerticalPodAutoscaler", "vpa")])
 
-        state = await sweep(api, [*KINDS, ("NeverServed", "livestate.test/v1")])
+        state = await sweep(api.as_api(), [*KINDS, ("NeverServed", "livestate.test/v1")])
 
-        assert list(state) == [("default", "VerticalPodAutoscaler", "vpa")]
+        assert list(state) == [ObjectKey("default", "VerticalPodAutoscaler", "vpa")]
 
     @pytest.mark.parametrize("status", [403, 404, 405])
     async def test_a_kind_that_cannot_be_listed_is_left_out(self, status: int) -> None:
@@ -276,13 +279,13 @@ class TestTheSweep:
         to fail a run, and every object of such a kind is simply applied."""
         api = FakeApi(
             resources=[VPA, CRD],
-            listed=[("default", "VerticalPodAutoscaler", "vpa")],
+            listed=[ObjectKey("default", "VerticalPodAutoscaler", "vpa")],
             deny={"CustomResourceDefinition": status},
         )
 
-        state = await sweep(api, [*KINDS, ("CustomResourceDefinition", "apiextensions.k8s.io/v1")])
+        state = await sweep(api.as_api(), [*KINDS, ("CustomResourceDefinition", "apiextensions.k8s.io/v1")])
 
-        assert list(state) == [("default", "VerticalPodAutoscaler", "vpa")]
+        assert list(state) == [ObjectKey("default", "VerticalPodAutoscaler", "vpa")]
         assert "CustomResourceDefinition" in api.swept
 
     async def test_another_status_is_not_swallowed(self) -> None:
@@ -291,27 +294,32 @@ class TestTheSweep:
         api = FakeApi(resources=[VPA], deny={"VerticalPodAutoscaler": 500})
 
         with pytest.raises(kr8s.ServerError):
-            await sweep(api, KINDS)
+            await sweep(api.as_api(), KINDS)
 
     async def test_the_selector_narrows_it(self) -> None:
         """`ekn.dev/environment=<env>`: an object without it is not one `ekn`
         applied, and one cluster holds several environments."""
         api = FakeApi(
             resources=[VPA],
-            listed=[("default", "VerticalPodAutoscaler", "mine"), ("default", "VerticalPodAutoscaler", "theirs")],
+            listed=[
+                ObjectKey("default", "VerticalPodAutoscaler", "mine"),
+                ObjectKey("default", "VerticalPodAutoscaler", "theirs"),
+            ],
         )
-        api.live[("default", "VerticalPodAutoscaler", "mine")]["labels"] = {"ekn.dev/environment": ENV}
+        api.live[ObjectKey("default", "VerticalPodAutoscaler", "mine")]["labels"] = {"ekn.dev/environment": ENV}
 
-        state = await sweep(api, KINDS, selector=f"ekn.dev/environment={ENV}")
+        state = await sweep(api.as_api(), KINDS, selector=f"ekn.dev/environment={ENV}")
 
-        assert list(state) == [("default", "VerticalPodAutoscaler", "mine")]
+        assert list(state) == [ObjectKey("default", "VerticalPodAutoscaler", "mine")]
 
     async def test_one_request_per_kind(self) -> None:
         """Whatever the kind appears as in the argument. A sweep is paid for
         once per kind, not once per object."""
-        api = FakeApi(resources=[VPA], listed=[("default", "VerticalPodAutoscaler", f"vpa{n}") for n in range(5)])
+        api = FakeApi(
+            resources=[VPA], listed=[ObjectKey("default", "VerticalPodAutoscaler", f"vpa{n}") for n in range(5)]
+        )
 
-        await sweep(api, [*KINDS, *KINDS])
+        await sweep(api.as_api(), [*KINDS, *KINDS])
 
         assert api.swept == ["VerticalPodAutoscaler"]
 
@@ -328,11 +336,11 @@ class TestWhoOwnsTheObjectProper:
 
     KINDS: ClassVar[list[tuple[str, str]]] = [("VerticalPodAutoscaler", "autoscaling.k8s.io/v1")]
 
-    async def _swept(self, entries: list[dict[str, Any]]) -> LiveObject:
-        api = FakeApi(resources=[VPA], listed=[("default", "VerticalPodAutoscaler", "vpa")])
-        api.live[("default", "VerticalPodAutoscaler", "vpa")]["managedFields"] = entries
-        state = await sweep(api, self.KINDS)
-        return state[("default", "VerticalPodAutoscaler", "vpa")]
+    async def _swept(self, entries: list[JsonValue]) -> LiveObject:
+        api = FakeApi(resources=[VPA], listed=[ObjectKey("default", "VerticalPodAutoscaler", "vpa")])
+        api.live[ObjectKey("default", "VerticalPodAutoscaler", "vpa")]["managedFields"] = entries
+        state = await sweep(api.as_api(), self.KINDS)
+        return state[ObjectKey("default", "VerticalPodAutoscaler", "vpa")]
 
     async def test_a_status_writer_is_not_an_owner(self) -> None:
         seen = await self._swept(

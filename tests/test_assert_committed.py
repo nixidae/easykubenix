@@ -14,7 +14,7 @@ about, which substituters get used, and what happens when the answer is no.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Protocol
 
 import pytest
 
@@ -42,8 +42,12 @@ class _Recorder:
             raise self.raises
 
 
+class InstallRecorder(Protocol):
+    def __call__(self, raises: Exception | None = ...) -> _Recorder: ...
+
+
 @pytest.fixture
-def recorder(monkeypatch: pytest.MonkeyPatch):
+def recorder(monkeypatch: pytest.MonkeyPatch) -> InstallRecorder:
     def install(raises: Exception | None = None) -> _Recorder:
         rec = _Recorder(raises)
         monkeypatch.setattr("ekn.cli.storecheck.assert_fetchable", rec)
@@ -53,7 +57,7 @@ def recorder(monkeypatch: pytest.MonkeyPatch):
 
 
 class TestWhatItAsksAbout:
-    async def test_the_paths_come_from_the_committed_text(self, recorder) -> None:
+    async def test_the_paths_come_from_the_committed_text(self, recorder: InstallRecorder) -> None:
         """The committed bytes, not the object tree. That is what a GitOps
         engine reads from the branch, and it covers a `tf` unit's rendered
         configuration, which is committed beside the manifests and is not a
@@ -67,7 +71,7 @@ class TestWhatItAsksAbout:
         assert roots == {_NODE_ENV.removeprefix("/nix/store/")}
         assert substituters == ["https://nixkube.cachix.org"]
 
-    async def test_a_tf_units_rendered_config_is_covered(self, recorder) -> None:
+    async def test_a_tf_units_rendered_config_is_covered(self, recorder: InstallRecorder) -> None:
         rec = recorder()
         tf_path = "/nix/store/" + "b" * 32 + "-provider"
         files = [("infra/config.tf.json", f'{{"x": "{tf_path}"}}\n')]
@@ -78,7 +82,7 @@ class TestWhatItAsksAbout:
 
 
 class TestWhenItDoesNothing:
-    async def test_no_substituters_is_off(self, recorder) -> None:
+    async def test_no_substituters_is_off(self, recorder: InstallRecorder) -> None:
         """Empty means off, which is right for an instance with no
         CSI-backed store: it has nothing to assert and should not pay for
         it."""
@@ -88,7 +92,7 @@ class TestWhenItDoesNothing:
 
         assert rec.calls == []
 
-    async def test_no_store_paths_asks_nothing(self, recorder) -> None:
+    async def test_no_store_paths_asks_nothing(self, recorder: InstallRecorder) -> None:
         """A `tf`-only instance, or a render that names no store path, has
         nothing to ask about -- and asking with an empty set would trip
         `assert_fetchable`'s own "no substituters would pass everything"
@@ -104,7 +108,7 @@ class TestWhenItDoesNothing:
 
 
 class TestWhenTheAnswerIsNo:
-    async def test_an_unfetchable_path_stops_the_deploy(self, recorder) -> None:
+    async def test_an_unfetchable_path_stops_the_deploy(self, recorder: InstallRecorder) -> None:
         """Refuses rather than warns. A path on no substituter is a mount
         that fails on a node, minutes later and well away from the deploy
         that caused it."""
@@ -115,7 +119,7 @@ class TestWhenTheAnswerIsNo:
 
         assert "nodeEnv" in str(exc.value)
 
-    async def test_a_substituter_that_cannot_answer_also_stops_it(self, recorder) -> None:
+    async def test_a_substituter_that_cannot_answer_also_stops_it(self, recorder: InstallRecorder) -> None:
         """A cache that is down and a path that was never pushed need
         different fixes, and `assert_fetchable` keeps them apart. Neither is
         a reason to move the branch."""

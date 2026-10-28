@@ -10,8 +10,10 @@ from ekn.validation import prepare_validation_objects
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from kappy.apply import Manifest
 
-def _configmap(name: str, namespace: str = "ns") -> dict[str, object]:
+
+def _configmap(name: str, namespace: str = "ns") -> Manifest:
     return {
         "kind": "ConfigMap",
         "apiVersion": "v1",

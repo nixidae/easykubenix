@@ -156,7 +156,7 @@ def cty_value(cty: Any) -> dict[str, Any]:
         return {"type": ["boolean", "string", "null"], "pattern": _BOOL, MESSAGE: "expects a bool or a ${...} template"}
     if not isinstance(cty, list) or not cty:
         return {}
-    kind, *args = cast("list[Any]", cty)
+    kind, *args = cty
     if kind in ("list", "set"):
         return _collection(cty_value(args[0]))
     if kind == "map":
@@ -457,7 +457,7 @@ def shipped_units(objects: Iterable[Mapping[str, Any]]) -> set[str]:
     """The `tf` units *objects* name in their `UNITS_ANNOTATION`."""
     found: set[str] = set()
     for obj in objects:
-        annotations = obj.get("metadata", {}).get("annotations") or {}
+        annotations: object = obj.get("metadata", {}).get("annotations")
         value = annotations.get(UNITS_ANNOTATION) if isinstance(annotations, dict) else None
         if isinstance(value, str):
             found.update(name for name in value.split(",") if name)
@@ -475,10 +475,10 @@ def _schema_nodes(schema: Mapping[str, Any], schema_path: list[str | int]) -> li
     for segment in schema_path:
         if segment == "$ref" and isinstance(node, dict) and "$ref" in node:
             node = defs[cast("str", node["$ref"]).removeprefix(_DEFS_PREFIX)]
-        elif isinstance(node, dict) and segment in node:
-            node = cast("dict[Any, Any]", node)[segment]
+        elif isinstance(node, dict) and segment in node:  # noqa: SIM114 - each branch narrows its own index type
+            node = node[segment]
         elif isinstance(node, list) and isinstance(segment, int):
-            node = cast("list[Any]", node)[segment]
+            node = node[segment]
         else:
             return nodes
         nodes.append(node)

@@ -158,8 +158,8 @@ def _live_object(kind: str, item: Mapping[str, Any]) -> LiveObject:
     """
     metadata_value = item.get("metadata")
     metadata: Mapping[str, Any] = metadata_value if isinstance(metadata_value, dict) else {}
-    annotations = metadata.get("annotations") or {}
-    labels = metadata.get("labels") or {}
+    annotations: object = metadata.get("annotations")
+    labels: object = metadata.get("labels")
 
     def string(source: Any, key: str) -> str | None:
         value = source.get(key) if isinstance(source, dict) else None

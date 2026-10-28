@@ -10,7 +10,7 @@ looking for a kubeconfig problem instead.
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Protocol
 
 import pytest
 from kappy.testing import FakeApi
@@ -29,8 +29,12 @@ OTHER = "00000000-1111-2222-3333-444444444444"
 ENV = "nixlab2"
 
 
+class UseCluster(Protocol):
+    def __call__(self, uid: str | None, *, error: str = ...) -> None: ...
+
+
 @pytest.fixture
-def cluster(monkeypatch: pytest.MonkeyPatch):
+def cluster(monkeypatch: pytest.MonkeyPatch) -> UseCluster:
     """Stand in for the `kube-system` GET. `uid=None` raises, which is what a
     cluster that will not answer looks like."""
 
@@ -52,24 +56,24 @@ def cluster(monkeypatch: pytest.MonkeyPatch):
 
 
 class TestDeclared:
-    async def test_a_match_returns_the_uid(self, cluster) -> None:
+    async def test_a_match_returns_the_uid(self, cluster: UseCluster) -> None:
         """Returned rather than just accepted: `open_cache` takes it, so the
         apply asks for the Namespace once and not twice."""
         cluster(LIVE)
 
         assert await require(FakeApi(), LIVE, environment=ENV) == LIVE  # type: ignore[arg-type]
 
-    async def test_a_mismatch_names_both(self, cluster) -> None:
+    async def test_a_mismatch_names_both(self, cluster: UseCluster) -> None:
         cluster(LIVE)
 
         with pytest.raises(SystemExit) as caught:
-            await require(FakeApi(), OTHER, environment=ENV)  # type: ignore[arg-type]
+            await require(FakeApi().as_api(), OTHER, environment=ENV)
 
         message = str(caught.value)
         assert OTHER in message
         assert LIVE in message
 
-    async def test_the_flag_does_not_override_a_mismatch(self, cluster) -> None:
+    async def test_the_flag_does_not_override_a_mismatch(self, cluster: UseCluster) -> None:
         """The negative control for the rule that matters. Without this the
         flag quietly becomes "skip the check" on the first refactor, and the
         fence is then off for everyone who ever typed it once.
@@ -77,34 +81,34 @@ class TestDeclared:
         cluster(LIVE)
 
         with pytest.raises(SystemExit) as caught:
-            await require(FakeApi(), OTHER, environment=ENV, override=True)  # type: ignore[arg-type]
+            await require(FakeApi().as_api(), OTHER, environment=ENV, override=True)
 
         assert OVERRIDE_FLAG in str(caught.value), "the message must say the flag does not apply here"
 
-    async def test_a_rebuilt_cluster_is_explained(self, cluster) -> None:
+    async def test_a_rebuilt_cluster_is_explained(self, cluster: UseCluster) -> None:
         """A new uid is the ordinary way a mismatch happens to someone who did
         nothing wrong, so the message says it rather than leaving them to
         conclude the kubeconfig is broken."""
         cluster(LIVE)
 
         with pytest.raises(SystemExit) as caught:
-            await require(FakeApi(), OTHER, environment=ENV)  # type: ignore[arg-type]
+            await require(FakeApi().as_api(), OTHER, environment=ENV)
 
         assert "rebuilt" in str(caught.value)
 
 
 class TestNotDeclared:
-    async def test_it_refuses_and_prints_the_line_to_paste(self, cluster) -> None:
+    async def test_it_refuses_and_prints_the_line_to_paste(self, cluster: UseCluster) -> None:
         cluster(LIVE)
 
         with pytest.raises(SystemExit) as caught:
-            await require(FakeApi(), None, environment=ENV)  # type: ignore[arg-type]
+            await require(FakeApi().as_api(), None, environment=ENV)
 
         message = str(caught.value)
         assert f'ekn.clusterUid = "{LIVE}";' in message, "adopting must be a copy-paste, not a lookup"
         assert OVERRIDE_FLAG in message
 
-    async def test_the_flag_runs_anyway_and_says_so(self, cluster) -> None:
+    async def test_the_flag_runs_anyway_and_says_so(self, cluster: UseCluster) -> None:
         cluster(LIVE)
 
         with capture_logs() as logs:
@@ -116,22 +120,22 @@ class TestNotDeclared:
 
 
 class TestUnreadable:
-    async def test_it_refuses_rather_than_passing(self, cluster) -> None:
+    async def test_it_refuses_rather_than_passing(self, cluster: UseCluster) -> None:
         """`fastcache.cluster_id` treats this as benign, because it only turns
         a cache off. Here the same silence would be a way past the fence: any
         permission error on `kube-system` would apply to anything."""
         cluster(None, error='namespaces "kube-system" is forbidden')
 
         with pytest.raises(SystemExit) as caught:
-            await require(FakeApi(), LIVE, environment=ENV)  # type: ignore[arg-type]
+            await require(FakeApi().as_api(), LIVE, environment=ENV)
 
         assert "forbidden" in str(caught.value), "the reason it could not be read has to reach the operator"
 
-    async def test_the_flag_does_not_help_either(self, cluster) -> None:
+    async def test_the_flag_does_not_help_either(self, cluster: UseCluster) -> None:
         cluster(None)
 
         with pytest.raises(SystemExit):
-            await require(FakeApi(), None, environment=ENV, override=True)  # type: ignore[arg-type]
+            await require(FakeApi().as_api(), None, environment=ENV, override=True)
 
     async def test_a_namespace_with_no_uid_is_unreadable_too(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Not an empty string compared against a declared value, which would
@@ -148,7 +152,7 @@ class TestUnreadable:
         monkeypatch.setattr("ekn.fastcache.Namespace", _Namespace)
 
         with pytest.raises(SystemExit) as caught:
-            await require(FakeApi(), LIVE, environment=ENV)  # type: ignore[arg-type]
+            await require(FakeApi().as_api(), LIVE, environment=ENV)
 
         assert "no uid" in str(caught.value)
 
@@ -163,37 +167,37 @@ class TestTheEnvironmentIsOnEveryMessage:
     drops it does so on its own and the others would still pass.
     """
 
-    async def test_on_a_mismatch(self, cluster) -> None:
+    async def test_on_a_mismatch(self, cluster: UseCluster) -> None:
         cluster(LIVE)
 
         with pytest.raises(SystemExit) as caught:
-            await require(FakeApi(), OTHER, environment=ENV)  # type: ignore[arg-type]
+            await require(FakeApi().as_api(), OTHER, environment=ENV)
 
         assert ENV in str(caught.value)
 
-    async def test_on_an_undeclared_cluster(self, cluster) -> None:
+    async def test_on_an_undeclared_cluster(self, cluster: UseCluster) -> None:
         cluster(LIVE)
 
         with pytest.raises(SystemExit) as caught:
-            await require(FakeApi(), None, environment=ENV)  # type: ignore[arg-type]
+            await require(FakeApi().as_api(), None, environment=ENV)
 
         assert ENV in str(caught.value)
 
-    async def test_on_an_unreadable_one(self, cluster) -> None:
+    async def test_on_an_unreadable_one(self, cluster: UseCluster) -> None:
         """The case where it carries the most: nothing else in the message
         identifies what was being applied."""
         cluster(None)
 
         with pytest.raises(SystemExit) as caught:
-            await require(FakeApi(), LIVE, environment=ENV)  # type: ignore[arg-type]
+            await require(FakeApi().as_api(), LIVE, environment=ENV)
 
         assert ENV in str(caught.value)
 
-    async def test_and_on_the_override_warning(self, cluster) -> None:
+    async def test_and_on_the_override_warning(self, cluster: UseCluster) -> None:
         cluster(LIVE)
 
         with capture_logs() as logs:
-            await require(FakeApi(), None, environment=ENV, override=True)  # type: ignore[arg-type]
+            await require(FakeApi().as_api(), None, environment=ENV, override=True)
 
         assert logs[0]["environment"] == ENV
 

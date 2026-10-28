@@ -1,11 +1,19 @@
 from __future__ import annotations
 
 import base64
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
+from json_at import at
 
 from ekn import seeds
+
+if TYPE_CHECKING:
+    from kappy.apply import Manifest
+    from kr8s.asyncio import Api
+
+#: The fixtures stand in for every call that would reach it.
+NO_API = cast("Api", object())
 
 
 def secret(*, annotations: dict[str, str] | None = None, **string_data: str) -> dict[str, Any]:
@@ -113,22 +121,22 @@ class TestSubstitution:
         # Structural, not textual. Splicing into rendered JSON would break on
         # every one of these.
         result = seeds.substitute(SEEDED, {"ARGOCD_REPO_PASSWORD": value})
-        assert result["stringData"]["password"] == value
+        assert at(result, "stringData", "password") == value
 
 
 class TestResolve:
     async def test_absent_and_set_creates(self, absent: None, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("ARGOCD_REPO_PASSWORD", "s3cret")
-        plan = await seeds.resolve([SEEDED], api=object())
+        plan = await seeds.resolve([SEEDED], api=NO_API)
         assert [a.verb for a in plan.actions] == ["create"]
-        assert plan.objects[0]["stringData"]["password"] == "s3cret"
+        assert at(plan.objects[0], "stringData", "password") == "s3cret"
 
     async def test_absent_and_unset_aborts_before_applying_anything(
         self, absent: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.delenv("ARGOCD_REPO_PASSWORD", raising=False)
         with pytest.raises(seeds.MissingVariablesError, match="ARGOCD_REPO_PASSWORD is not set"):
-            await seeds.resolve([SEEDED], api=object())
+            await seeds.resolve([SEEDED], api=NO_API)
 
     async def test_every_missing_variable_is_listed_at_once(
         self, absent: None, monkeypatch: pytest.MonkeyPatch
@@ -139,7 +147,7 @@ class TestResolve:
         monkeypatch.delenv("ESO_TOKEN", raising=False)
         other = secret(annotations={"ekn.dev/env-0": "ESO_TOKEN"}, password="$ekn:env:ESO_TOKEN")
         with pytest.raises(seeds.MissingVariablesError) as caught:
-            await seeds.resolve([SEEDED, other], api=object())
+            await seeds.resolve([SEEDED, other], api=NO_API)
         assert "ARGOCD_REPO_PASSWORD is not set" in str(caught.value)
         assert "ESO_TOKEN is not set" in str(caught.value)
 
@@ -152,9 +160,9 @@ class TestResolve:
         # in the cluster goes back into the field instead, so the apply is a
         # no-op for the credential and ordinary for every other field.
         monkeypatch.delenv("ARGOCD_REPO_PASSWORD", raising=False)
-        plan = await seeds.resolve([SEEDED], api=object())
+        plan = await seeds.resolve([SEEDED], api=NO_API)
         assert [a.verb for a in plan.actions] == ["skip"]
-        assert plan.objects[0]["stringData"]["password"] == "live-value"
+        assert at(plan.objects[0], "stringData", "password") == "live-value"
         assert seeds.REFERENCE_PREFIX not in str(plan.objects[0])
 
     async def test_present_and_set_to_the_same_value_is_a_no_op(
@@ -164,17 +172,17 @@ class TestResolve:
         # is still applied, carrying the value the cluster already holds, so
         # any other field on it reconciles.
         monkeypatch.setenv("ARGOCD_REPO_PASSWORD", "live-value")
-        plan = await seeds.resolve([SEEDED], api=object())
+        plan = await seeds.resolve([SEEDED], api=NO_API)
         assert [a.verb for a in plan.actions] == ["unchanged"]
-        assert plan.objects[0]["stringData"]["password"] == "live-value"
+        assert at(plan.objects[0], "stringData", "password") == "live-value"
 
     async def test_present_and_set_to_a_different_value_updates(
         self, present: dict[str, Any], monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setenv("ARGOCD_REPO_PASSWORD", "rotated")
-        plan = await seeds.resolve([SEEDED], api=object())
+        plan = await seeds.resolve([SEEDED], api=NO_API)
         assert [a.verb for a in plan.actions] == ["update"]
-        assert plan.objects[0]["stringData"]["password"] == "rotated"
+        assert at(plan.objects[0], "stringData", "password") == "rotated"
 
     async def test_a_declared_but_unreferenced_variable_still_reports(self) -> None:
         # The annotation and the reference are written together, so a
@@ -190,8 +198,8 @@ class TestResolve:
         ]
 
     async def test_an_unseeded_object_passes_through_untouched(self, absent: None) -> None:
-        plain = {"apiVersion": "v1", "kind": "ConfigMap", "metadata": {"name": "plain"}}
-        plan = await seeds.resolve([plain], api=object())
+        plain: Manifest = {"apiVersion": "v1", "kind": "ConfigMap", "metadata": {"name": "plain"}}
+        plan = await seeds.resolve([plain], api=NO_API)
         assert plan.objects == [plain]
         assert plan.actions == []
 
@@ -218,11 +226,11 @@ class TestDescribe:
         assert rows[0].in_cluster is None
 
     async def test_with_a_cluster_presence_is_filled_in(self, present: dict[str, Any]) -> None:
-        rows = await seeds.inspect(seeds.describe([SEEDED]), api=object())
+        rows = await seeds.inspect(seeds.describe([SEEDED]), api=NO_API)
         assert rows[0].in_cluster is True
 
     async def test_an_absent_object_reports_absent(self, absent: None) -> None:
-        rows = await seeds.inspect(seeds.describe([SEEDED]), api=object())
+        rows = await seeds.inspect(seeds.describe([SEEDED]), api=NO_API)
         assert rows[0].in_cluster is False
 
 
@@ -267,7 +275,7 @@ class TestEmptyIsUnset:
     ) -> None:
         monkeypatch.setenv("ARGOCD_REPO_PASSWORD", "")
         with pytest.raises(seeds.MissingVariablesError, match="ARGOCD_REPO_PASSWORD is not set"):
-            await seeds.resolve([SEEDED], api=object())
+            await seeds.resolve([SEEDED], api=NO_API)
 
     def test_describe_reports_empty_as_not_set(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("ARGOCD_REPO_PASSWORD", "")
@@ -292,15 +300,15 @@ class TestOtherFieldsStillReconcile:
             password="$ekn:env:ARGOCD_REPO_PASSWORD",
         )
         edited["stringData"]["username"] = "oauth2"
-        plan = await seeds.resolve([edited], api=object())
+        plan = await seeds.resolve([edited], api=NO_API)
 
         assert [a.verb for a in plan.actions] == ["skip"]
         assert len(plan.objects) == 1
         # The edit lands...
-        assert plan.objects[0]["stringData"]["username"] == "oauth2"
+        assert at(plan.objects[0], "stringData", "username") == "oauth2"
         # ...and the credential is written back exactly as the cluster holds
         # it, so the apply is a no-op for that field rather than a deletion.
-        assert plan.objects[0]["stringData"]["password"] == "live-value"
+        assert at(plan.objects[0], "stringData", "password") == "live-value"
 
     async def test_an_unreadable_live_value_falls_back_to_dropping(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # Nothing to reconstruct the field from, so applying would delete it.
@@ -310,6 +318,6 @@ class TestOtherFieldsStillReconcile:
 
         monkeypatch.setattr(seeds, "build_object", build_object)
         monkeypatch.delenv("ARGOCD_REPO_PASSWORD", raising=False)
-        plan = await seeds.resolve([SEEDED], api=object())
+        plan = await seeds.resolve([SEEDED], api=NO_API)
         assert [a.verb for a in plan.actions] == ["skip"]
         assert plan.objects == []

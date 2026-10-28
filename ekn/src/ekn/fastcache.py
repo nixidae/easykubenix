@@ -56,6 +56,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import structlog
+from kappy.apply import raw_metadata
 from kappy.converge import object_key
 from kr8s.asyncio.objects import Namespace
 
@@ -383,8 +384,7 @@ async def read_cluster_id(api: Api) -> str:
         namespace = await Namespace.async_get(IDENTITY_NAMESPACE, api=api)
     except Exception as exc:
         raise ClusterIdUnreadableError(f"cannot read the {IDENTITY_NAMESPACE} Namespace: {exc}") from exc
-    metadata = namespace.raw.get("metadata")
-    uid = metadata.get("uid") if isinstance(metadata, dict) else None
+    uid = raw_metadata(namespace).get("uid")
     if not isinstance(uid, str) or not uid:
         raise ClusterIdUnreadableError(f"the {IDENTITY_NAMESPACE} Namespace carries no uid")
     return uid

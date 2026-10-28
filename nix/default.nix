@@ -330,7 +330,12 @@ in
     ;
   inherit (examples) packages;
 
-  shell = pkgs.python3Packages.callPackage ./shell.nix {
+  # `pkgs.callPackage`: the Python-package ruff of `python3Packages` brings
+  # Python's setup hook, and its PYTHONPATH shadows a type checker's stubs
+  # (nixidae/nixidae#1046). The venvs need no PYTHONPATH.
+  shell = pkgs.callPackage ./shell.nix {
+    python = pkgs.python3;
+    inherit (pkgs.python3Packages) sphinx myst-parser furo;
     inherit (root.passthru) eknDevEnv;
     inherit (import sources.nixvenv { inherit pkgs; }) nixvenv;
   };

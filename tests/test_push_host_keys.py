@@ -22,6 +22,10 @@ from ekn.eval import _pushing_ssh_opts, ssh_destination, ssh_failure_hint, ssh_o
 
 if TYPE_CHECKING:
     import pathlib
+    from collections.abc import Callable
+
+#: The `fake_ssh` fixture: installs a scripted `ssh` and returns its argument log.
+type InstallSsh = Callable[[str], pathlib.Path]
 
 _ACCEPT_NEW = "-o StrictHostKeyChecking=accept-new"
 
@@ -53,7 +57,7 @@ exit 255
 
 
 @pytest.fixture
-def fake_ssh(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch):
+def fake_ssh(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> InstallSsh:
     """Put a scripted `ssh` first on `PATH`, and return its argument log."""
     log = tmp_path / "ssh-args"
     monkeypatch.setenv("SSH_LOG", str(log))
@@ -155,7 +159,7 @@ class TestSshFailureHint:
     key, a refused connection and a rejected login alike. These are the three
     apart."""
 
-    async def test_an_unknown_key_names_the_command_that_accepts_it(self, fake_ssh) -> None:
+    async def test_an_unknown_key_names_the_command_that_accepts_it(self, fake_ssh: InstallSsh) -> None:
         fake_ssh(_UNKNOWN_KEY)
 
         hint = await ssh_failure_hint("ssh-ng://nix@pynixd.example")
@@ -165,7 +169,7 @@ class TestSshFailureHint:
         assert "-o StrictHostKeyChecking=accept-new nix@pynixd.example" in hint
         assert "ekn.cacheAcceptNewHostKeys" in hint
 
-    async def test_a_changed_key_is_not_the_same_advice(self, fake_ssh) -> None:
+    async def test_a_changed_key_is_not_the_same_advice(self, fake_ssh: InstallSsh) -> None:
         """`accept-new` refuses a key that changed, so telling the reader to
         run it would send them in a circle."""
         fake_ssh(_CHANGED_KEY)
@@ -177,7 +181,7 @@ class TestSshFailureHint:
         assert "ssh-keygen -R pynixd.example" in hint
         assert "accept-new" not in hint
 
-    async def test_an_unreachable_host_says_the_key_is_not_it(self, fake_ssh) -> None:
+    async def test_an_unreachable_host_says_the_key_is_not_it(self, fake_ssh: InstallSsh) -> None:
         fake_ssh(_REFUSED)
 
         hint = await ssh_failure_hint("ssh-ng://nix@pynixd.example")
@@ -186,18 +190,18 @@ class TestSshFailureHint:
         assert "host key is not the problem" in hint
         assert "Connection refused" in hint
 
-    async def test_a_host_that_answered_adds_nothing(self, fake_ssh) -> None:
+    async def test_a_host_that_answered_adds_nothing(self, fake_ssh: InstallSsh) -> None:
         fake_ssh(_DENIED)
 
         assert await ssh_failure_hint("ssh-ng://nix@pynixd.example") is None
 
-    async def test_a_non_ssh_destination_starts_no_probe(self, fake_ssh) -> None:
+    async def test_a_non_ssh_destination_starts_no_probe(self, fake_ssh: InstallSsh) -> None:
         log = fake_ssh(_UNKNOWN_KEY)
 
         assert await ssh_failure_hint("https://nixkube.cachix.org") is None
         assert not log.exists(), "a cachix URL must not make this run ssh"
 
-    async def test_the_probe_carries_the_port_and_never_writes_a_key(self, fake_ssh) -> None:
+    async def test_the_probe_carries_the_port_and_never_writes_a_key(self, fake_ssh: InstallSsh) -> None:
         """A diagnosis that changed what the machine trusts would answer the
         question by removing it."""
         log = fake_ssh(_UNKNOWN_KEY)
@@ -242,7 +246,7 @@ class TestTheHintReachesTheReport:
 
         with structlog.testing.capture_logs() as logs, pytest.raises(SystemExit) as exc:
             await _push_one_cache(
-                "/nix/store/aaa-cache",
+                ["/nix/store/aaa-cache"],
                 "ssh-ng://nix@pynixd",
                 timeout_sec=None,
                 allow_failure=False,
@@ -260,7 +264,7 @@ class TestTheHintReachesTheReport:
 
         with structlog.testing.capture_logs() as logs, pytest.raises(SystemExit):
             await _push_one_cache(
-                "/nix/store/aaa-cache",
+                ["/nix/store/aaa-cache"],
                 "ssh-ng://nix@pynixd",
                 timeout_sec=5,
                 allow_failure=False,
@@ -277,7 +281,7 @@ class TestTheHintReachesTheReport:
 
         with structlog.testing.capture_logs() as logs:
             await _push_one_cache(
-                "/nix/store/aaa-cache",
+                ["/nix/store/aaa-cache"],
                 "ssh-ng://nix@pynixd",
                 timeout_sec=None,
                 allow_failure=True,

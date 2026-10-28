@@ -149,13 +149,7 @@ async def load_installed(catalog: Catalog, api: kr8s.asyncio.Api) -> int:
     `catalog.installed`. Returns how many objects."""
     for kind in _INSTALLED:
         try:
-            catalog.installed.extend(
-                [
-                    obj.raw
-                    async for obj in api.async_get(kind)  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType] -- kr8s Api.async_get's yield type is unannotated upstream
-                    if isinstance(obj, APIObject)
-                ]
-            )
+            catalog.installed.extend([obj.raw async for obj in api.async_get(kind) if isinstance(obj, APIObject)])
         except ServerError as exc:
             # admissionregistration.k8s.io/v1 serves policies from Kubernetes 1.30.
             if exc.response is None or exc.response.status_code != httpx.codes.NOT_FOUND:

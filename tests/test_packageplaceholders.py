@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 import pygit2
 import pytest
+from json_at import at, mapping_at, text_at
 
 from ekn import cli, packageplaceholders
 from ekn._cli import build_parser
@@ -17,10 +18,13 @@ from ekn.packageplaceholders import evaluation_mode, normalize_manifest_yaml
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from huggorm.jsonprimop import JsonValue
+    from kappy.apply import Manifest
+
 VARIABLE = "EKN_PACKAGE_PLACEHOLDERS"
 REAL = "/nix/store/" + "0" * 32 + "-program-1.0"
 PREVIEW = "/nix/store/" + "A" * 32 + "-program"
-MANIFEST = {
+MANIFEST: Manifest = {
     "apiVersion": "v1",
     "kind": "ConfigMap",
     "metadata": {
@@ -110,11 +114,12 @@ async def test_delivery_clears_inherited_preview_mode(monkeypatch: pytest.Monkey
     assert os.environ[VARIABLE] == "1"
 
 
-def _preview_manifest() -> dict:
+def _preview_manifest() -> Manifest:
     obj = copy.deepcopy(MANIFEST)
-    obj["metadata"]["annotations"]["ekn.dev/manifest-hash"] = "new"
-    obj["metadata"]["annotations"].pop("ekn.dev/manifest-digest")
-    obj["data"]["command"] = obj["data"]["command"].replace(REAL, PREVIEW)
+    annotations = mapping_at(obj, "metadata", "annotations")
+    annotations["ekn.dev/manifest-hash"] = "new"
+    annotations.pop("ekn.dev/manifest-digest")
+    mapping_at(obj, "data")["command"] = text_at(obj, "data", "command").replace(REAL, PREVIEW)
     return obj
 
 
@@ -122,12 +127,14 @@ def test_normalization_preserves_paths_after_roots_and_unrelated_annotations() -
     [(_, content)] = flatten_manifests([MANIFEST])
     normalized = from_yaml(normalize_manifest_yaml(content))
     assert isinstance(normalized, dict)
-    assert normalized["metadata"] == {"name": "probe", "annotations": {"keep": "yes"}}
-    assert normalized["data"] == {
+    metadata: JsonValue = {"name": "probe", "annotations": {"keep": "yes"}}
+    data: JsonValue = {
         "command": f"{PREVIEW.replace('-program', '-placeholder')}/bin/program "
         f"--file={PREVIEW.replace('-program', '-placeholder')}/share/input",
         "other": "unchanged",
     }
+    assert normalized["metadata"] == metadata
+    assert normalized["data"] == data
 
 
 @pytest.mark.parametrize("reverse", [False, True])
@@ -147,14 +154,15 @@ def test_diff_normalizes_both_inputs_without_moving_refs(test_repo: Path, revers
 def test_diff_keeps_other_changes_visible(test_repo: Path, change: str) -> None:
     commit_manifests(str(test_repo), "preview-test", flatten_manifests([MANIFEST]), "baseline")
     new = _preview_manifest()
+    data = mapping_at(new, "data")
     if change == "executable":
-        new["data"]["command"] = new["data"]["command"].replace("/bin/program", "/bin/other")
+        data["command"] = text_at(data, "command").replace("/bin/program", "/bin/other")
     elif change == "file":
-        new["data"]["command"] = new["data"]["command"].replace("/share/input", "/share/other")
+        data["command"] = text_at(data, "command").replace("/share/input", "/share/other")
     elif change == "setting":
-        new["data"]["other"] = "changed"
+        data["other"] = "changed"
     else:
-        new["metadata"]["annotations"]["keep"] = "changed"
+        mapping_at(new, "metadata", "annotations")["keep"] = "changed"
     diff = diff_manifests(str(test_repo), "preview-test", flatten_manifests([new]), package_placeholders=True)
     assert diff is not None
     assert ("other" if change in {"executable", "file"} else "changed") in diff
@@ -171,7 +179,7 @@ def test_assembled_package_paths_match_one_preview_reference(test_repo: Path, na
     old["data"] = {}
     old["spec"] = {"containers": [{"env": [{"name": name, "value": f"{REAL}/lib:{REAL}-dependency/lib"}]}]}
     new = copy.deepcopy(old)
-    new["spec"]["containers"][0]["env"][0]["value"] = f"{PREVIEW}/lib"
+    mapping_at(new, "spec", "containers", 0, "env", 0)["value"] = f"{PREVIEW}/lib"
     commit_manifests(str(test_repo), "assembled-path-test", flatten_manifests([old]), "baseline")
     assert diff_manifests(str(test_repo), "assembled-path-test", flatten_manifests([new])) is not None
     assert (
@@ -191,7 +199,7 @@ def test_assembled_path_normalization_preserves_suffixes_literals_and_empty_entr
     [(_, content)] = flatten_manifests([obj])
     normalized = from_yaml(normalize_manifest_yaml(content))
     assert isinstance(normalized, dict)
-    assert normalized["spec"]["containers"][0]["env"][0]["value"] == value.replace(
+    assert at(normalized, "spec", "containers", 0, "env", 0, "value") == value.replace(
         REAL, packageplaceholders._PLACEHOLDER
     )
 
@@ -204,7 +212,7 @@ def test_non_path_environment_variables_preserve_repeated_entries() -> None:
     normalized = from_yaml(normalize_manifest_yaml(content))
     assert isinstance(normalized, dict)
     assert (
-        normalized["spec"]["containers"][0]["env"][0]["value"]
+        at(normalized, "spec", "containers", 0, "env", 0, "value")
         == f"{packageplaceholders._PLACEHOLDER}/lib:{packageplaceholders._PLACEHOLDER}/lib"
     )
 
@@ -217,7 +225,7 @@ def test_non_manifest_yaml_stays_exact() -> None:
 @pytest.mark.parametrize("digest", ["0" * 31, "0" * 33, "B" * 32])
 def test_normalization_preserves_non_store_paths(digest: str) -> None:
     obj = copy.deepcopy(MANIFEST)
-    obj["data"]["command"] = f"/nix/store/{digest}-program/bin/program"
+    mapping_at(obj, "data")["command"] = f"/nix/store/{digest}-program/bin/program"
     [(_, content)] = flatten_manifests([obj])
     normalized = from_yaml(normalize_manifest_yaml(content))
     assert isinstance(normalized, dict)
@@ -225,7 +233,7 @@ def test_normalization_preserves_non_store_paths(digest: str) -> None:
 
 
 def test_normalization_preserves_types_and_embedded_data_keys() -> None:
-    obj = {
+    obj: Manifest = {
         "apiVersion": "example.org/v1",
         "kind": "Probe",
         "metadata": {"name": "probe", "annotations": {"ekn.dev/manifest-hash": "hash"}},
@@ -240,11 +248,13 @@ def test_normalization_preserves_types_and_embedded_data_keys() -> None:
     [(_, content)] = flatten_manifests([obj])
     normalized = from_yaml(normalize_manifest_yaml(content))
     assert isinstance(normalized, dict)
-    assert normalized["metadata"] == {"name": "probe"}
-    assert normalized["spec"] == {
-        **obj["spec"],
+    metadata: JsonValue = {"name": "probe"}
+    spec: JsonValue = {
+        **mapping_at(obj, "spec"),
         "command": [f"{PREVIEW.replace('-program', '-placeholder')}/bin/program", "--enabled"],
     }
+    assert normalized["metadata"] == metadata
+    assert normalized["spec"] == spec
 
 
 @pytest.mark.parametrize("reverse", [False, True])
@@ -253,14 +263,14 @@ def test_declared_rollout_hashes_normalize_both_sides(test_repo: Path, reverse: 
     new = _preview_manifest()
     old["spec"] = {"template": {"metadata": {"annotations": {"example.org/config": "old", "keep": "yes"}}}}
     new["spec"] = {"template": {"metadata": {"annotations": {"example.org/config": "new", "keep": "yes"}}}}
-    new["metadata"]["annotations"]["ekn.dev/package-placeholder-hashes"] = (
+    mapping_at(new, "metadata", "annotations")["ekn.dev/package-placeholder-hashes"] = (
         '["/spec/template/metadata/annotations/example.org~1config"]'
     )
     before, after = (new, old) if reverse else (old, new)
     commit_manifests(str(test_repo), "preview-test", flatten_manifests([before]), "baseline")
     assert diff_manifests(str(test_repo), "preview-test", flatten_manifests([after]), package_placeholders=True) is None
     after = copy.deepcopy(after)
-    after["spec"]["template"]["metadata"]["annotations"]["keep"] = "changed"
+    mapping_at(after, "spec", "template", "metadata", "annotations")["keep"] = "changed"
     assert diff_manifests(str(test_repo), "preview-test", flatten_manifests([after]), package_placeholders=True)
 
 

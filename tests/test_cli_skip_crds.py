@@ -37,7 +37,7 @@ async def test_render_validates_crds_before_filtering_output(
         },
         {"apiVersion": "example.org/v1", "kind": "Probe", "metadata": {"name": "probe"}},
     ]
-    checked = []
+    checked: list[object] = []
 
     async def evaluate(*_args: object, **kwargs: object) -> tuple[list[JsonValue], str | None]:
         assert kwargs["with_spec"] is validate
@@ -66,7 +66,7 @@ async def test_render_validates_crds_before_filtering_output(
 async def test_diff_passes_skip_flag_to_render_and_comparison(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    flags = []
+    flags: list[object] = []
 
     async def resolve(*_args: object, **kwargs: object) -> tuple[str, None, list[tuple[str, str]], list[str]]:
         flags.append(kwargs["skip_crds"])
@@ -114,8 +114,8 @@ async def test_clusterdiff_filters_before_decryption_and_keeps_cluster_fence(
         }
     )
     selected = objects[1:] if skip_crds else objects
-    decrypted = []
-    calls = []
+    decrypted: list[object] = []
+    calls: list[str] = []
     api = object()
 
     async def evaluate(*_args: object) -> KubeApplyConfigResult:
@@ -141,7 +141,7 @@ async def test_clusterdiff_filters_before_decryption_and_keeps_cluster_fence(
 
     monkeypatch.setattr(cli, "evaluate_kubeapply_config", evaluate)
     monkeypatch.setattr(cli, "maybe_decrypt", decrypt)
-    monkeypatch.setattr(cli.kr8s.asyncio, "api", connect)
+    monkeypatch.setattr("kr8s.asyncio.api", connect)
     monkeypatch.setattr(cli.ClusterDiff, "_fence", fence)
     monkeypatch.setattr(cli, "cluster_diff", diff)
     await cli.ClusterDiff(file=".", skip_crds=skip_crds).run()

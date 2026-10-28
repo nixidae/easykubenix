@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pytest
 from pydantic import ValidationError
 
 from ekn.eval import GitOpsManifestsResult, GitOpsTargetEntry
 from ekn.gitops import GitOpsTarget, branches, file_groups, resolved_targets
 
+if TYPE_CHECKING:
+    from kappy.apply import Manifest
 
-def _deployment() -> dict[str, object]:
+
+def _deployment() -> Manifest:
     return {
         "apiVersion": "apps/v1",
         "kind": "Deployment",

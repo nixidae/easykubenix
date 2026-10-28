@@ -1,6 +1,6 @@
 # Useful commands
 - `direnv exec . pytest`
-- `direnv exec . pyright ekn`
+- `direnv exec . zuban mypy`
 - `direnv exec . ruff check --fix`
 - `direnv exec . ruff check --config ruff-strict.toml`
 - `direnv exec . ruff format --check`

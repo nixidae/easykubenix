@@ -12,6 +12,7 @@ from typing import Any
 import anyio
 import pygit2
 from anyio import Path as AsyncPath
+from pygit2.enums import FileMode
 
 from ekn.gitops import is_crd_file, without_crd_references
 from ekn.nixyaml import from_yaml_stream
@@ -45,7 +46,7 @@ def _build_tree(repo: Any, files: list[tuple[str, str]]) -> Any:
     index = pygit2.Index()
     for rel_path, content in files:
         blob_id = repo.create_blob(content.encode("utf-8"))
-        entry = pygit2.IndexEntry(rel_path, blob_id, pygit2.GIT_FILEMODE_BLOB)  # pyright: ignore[reportArgumentType] -- pygit2 types IndexEntry.mode as FileMode but exposes GIT_FILEMODE_BLOB as a plain int
+        entry = pygit2.IndexEntry(rel_path, blob_id, FileMode.BLOB)
         index.add(entry)
     return index.write_tree(repo)
 
@@ -67,7 +68,7 @@ def snapshot_source_tree(repo_path: str) -> pygit2.Oid:
     """
     repo = pygit2.Repository(_repo_path(repo_path))
     workdir = repo.workdir
-    if workdir is None:  # pyright: ignore[reportUnnecessaryComparison] -- pygit2's stub types workdir as always str, but a bare repo returns None at runtime
+    if workdir is None:
         raise ValueError("repository has no working directory")
 
     workdir_path = Path(workdir)
@@ -91,11 +92,11 @@ def snapshot_source_tree(repo_path: str) -> pygit2.Oid:
                 continue
             if abs_path.is_symlink():
                 blob_id = repo.create_blob(str(abs_path.readlink()).encode("utf-8"))
-                mode = pygit2.GIT_FILEMODE_LINK
+                mode = FileMode.LINK
             else:
                 blob_id = repo.create_blob_fromworkdir(rel_path)
-                mode = pygit2.GIT_FILEMODE_BLOB_EXECUTABLE if os.access(abs_path, os.X_OK) else pygit2.GIT_FILEMODE_BLOB
-            entry = pygit2.IndexEntry(rel_path, blob_id, mode)  # pyright: ignore[reportArgumentType] -- pygit2 GIT_FILEMODE_* are ints but IndexEntry.mode's stub wants its own enum, same as _build_tree below
+                mode = FileMode.BLOB_EXECUTABLE if os.access(abs_path, os.X_OK) else FileMode.BLOB
+            entry = pygit2.IndexEntry(rel_path, blob_id, mode)
             index.add(entry)
     return index.write_tree(repo)
 
@@ -127,7 +128,7 @@ def commit_manifests(
     )
 
     commit = repo[commit_id]
-    if not isinstance(commit, pygit2.Commit):  # pyright: ignore[reportUnnecessaryIsInstance] -- pygit2-stubs models Object/Commit as unrelated siblings of an invariant generic _ObjectBase[T] (different type args), so pyright thinks this can never match, even though pygit2.Commit.__mro__ shows Commit genuinely subclasses Object at runtime
+    if not isinstance(commit, pygit2.Commit):
         msg = f"expected Commit, got {type(commit).__name__}"
         raise TypeError(msg)
     repo.create_branch(branch_name, commit, True)
@@ -333,7 +334,7 @@ def finalize_branches(
 
     for branch_name, oid in pairs:
         commit = repo[oid]
-        if not isinstance(commit, pygit2.Commit):  # pyright: ignore[reportUnnecessaryIsInstance] -- pygit2-stubs models Object/Commit as unrelated siblings of an invariant generic _ObjectBase[T] (different type args), so pyright thinks this can never match, even though pygit2.Commit.__mro__ shows Commit genuinely subclasses Object at runtime
+        if not isinstance(commit, pygit2.Commit):
             msg = f"expected Commit, got {type(commit).__name__}"
             raise TypeError(msg)
         if branch_name in repo.branches.local:
@@ -366,10 +367,11 @@ def rollback_branches(
     if to is not None:
         target_commit = repo.revparse_single(to).peel(pygit2.Commit)
     else:
-        target_commit = repo[deploy_tip]
-        if not isinstance(target_commit, pygit2.Commit):  # pyright: ignore[reportUnnecessaryIsInstance] -- pygit2-stubs models Object/Commit as unrelated siblings of an invariant generic _ObjectBase[T] (different type args), so pyright thinks this can never match, even though pygit2.Commit.__mro__ shows Commit genuinely subclasses Object at runtime
-            msg = f"expected Commit, got {type(target_commit).__name__}"
+        tip = repo[deploy_tip]
+        if not isinstance(tip, pygit2.Commit):
+            msg = f"expected Commit, got {type(tip).__name__}"
             raise TypeError(msg)
+        target_commit = tip
         for _ in range(steps_back):
             if not target_commit.parents:
                 raise ValueError(f"{deploy_branch} has no ancestor {steps_back} steps back")
@@ -396,7 +398,7 @@ def rollback_branches(
         target_source_oid = _read_source_trailer(target_commit)
         if target_source_oid is not None:
             target_source_commit = repo[target_source_oid]
-            if not isinstance(target_source_commit, pygit2.Commit):  # pyright: ignore[reportUnnecessaryIsInstance] -- pygit2-stubs models Object/Commit as unrelated siblings of an invariant generic _ObjectBase[T] (different type args), so pyright thinks this can never match, even though pygit2.Commit.__mro__ shows Commit genuinely subclasses Object at runtime
+            if not isinstance(target_source_commit, pygit2.Commit):
                 msg = f"expected Commit, got {type(target_source_commit).__name__}"
                 raise TypeError(msg)
             source_tree_id = target_source_commit.tree_id

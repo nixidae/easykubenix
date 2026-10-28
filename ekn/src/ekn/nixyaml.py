@@ -36,7 +36,7 @@ def _yaml12_loader() -> type[Any]:
     # mutate, so this custom-tag setup carries over unchanged -- just faster
     # (easykubenix's ekn makes the same swap on the dump side in its own
     # gitops.py, benchmarked ~7.5x).
-    class Loader(yaml.CSafeLoader):  # type: ignore[reportUnknownBaseType] -- PyYAML stubs may be incomplete
+    class Loader(yaml.CSafeLoader):
         pass
 
     legacy_tags = {
@@ -44,22 +44,22 @@ def _yaml12_loader() -> type[Any]:
         "tag:yaml.org,2002:float",
         "tag:yaml.org,2002:int",
     }
-    Loader.yaml_implicit_resolvers = {  # type: ignore[reportUnknownMemberType] -- yaml_implicit_resolvers class attribute not in stubs
+    Loader.yaml_implicit_resolvers = {
         ch: [(tag, regexp) for tag, regexp in resolvers if tag not in legacy_tags]
-        for ch, resolvers in yaml.CSafeLoader.yaml_implicit_resolvers.items()  # type: ignore[reportUnknownMemberType] -- yaml_implicit_resolvers not in stubs
+        for ch, resolvers in yaml.CSafeLoader.yaml_implicit_resolvers.items()
     }
 
-    Loader.add_implicit_resolver(  # type: ignore[reportUnknownMemberType] -- yaml.Loader methods may not have complete stubs
+    Loader.add_implicit_resolver(
         "tag:yaml.org,2002:bool",
         re.compile(r"^(?:true|True|TRUE|false|False|FALSE)$"),
         list("tTfF"),
     )
-    Loader.add_implicit_resolver(  # type: ignore[reportUnknownMemberType] -- yaml.Loader methods may not have complete stubs
+    Loader.add_implicit_resolver(
         "tag:yaml.org,2002:int",
         re.compile(r"^[-+]?(?:[0-9]+|0o[0-7]+|0x[0-9a-fA-F]+)$"),
         list("-+0123456789"),
     )
-    Loader.add_implicit_resolver(  # type: ignore[reportUnknownMemberType] -- yaml.Loader methods may not have complete stubs
+    Loader.add_implicit_resolver(
         "tag:yaml.org,2002:float",
         re.compile(
             r"""^(?:[-+]?(?:[0-9][0-9_]*)\.[0-9_]*(?:[eE][-+]?[0-9]+)?
@@ -70,7 +70,7 @@ def _yaml12_loader() -> type[Any]:
         ),
         list("-+0123456789."),
     )
-    Loader.add_constructor("tag:yaml.org,2002:int", _construct_yaml12_int)  # type: ignore[reportUnknownMemberType] -- yaml.Loader methods may not have complete stubs
+    Loader.add_constructor("tag:yaml.org,2002:int", _construct_yaml12_int)
     return Loader
 
 
@@ -110,14 +110,22 @@ _GO_PLAIN_FLOAT_LIMIT = 1e21
 # `int | float` and not `float`: beartype checks the annotation at run time,
 # and an int is not an instance of float there.
 def _construct_yaml11_float(loader: Any, node: Any) -> int | float:
-    value: float = yaml.CSafeLoader.construct_yaml_float(loader, node)  # type: ignore[reportUnknownMemberType] -- PyYAML stubs may be incomplete
+    value: float = yaml.CSafeLoader.construct_yaml_float(loader, node)
     if value.is_integer() and abs(value) < _GO_PLAIN_FLOAT_LIMIT:
         return int(value)
     return value
 
 
+def _construct_value(loader: yaml.CSafeLoader, node: yaml.Node) -> str:
+    if not isinstance(node, yaml.ScalarNode):
+        raise yaml.constructor.ConstructorError(
+            None, None, f"expected a scalar, found {type(node).__name__}", node.start_mark
+        )
+    return loader.construct_scalar(node)
+
+
 def _yaml11_loader() -> type[Any]:
-    class Loader(yaml.CSafeLoader):  # type: ignore[reportUnknownBaseType] -- PyYAML stubs may be incomplete
+    class Loader(yaml.CSafeLoader):
         pass
 
     # Helm's dialect, which is what this parser is for, and which is neither
@@ -131,7 +139,7 @@ def _yaml11_loader() -> type[Any]:
     # already resolves -- every octal integer, every 1.1 float -- is decided
     # before this is reached. The only scalars whose type changes are ones 1.1
     # called strings and no producer here means as strings.
-    Loader.add_implicit_resolver(  # type: ignore[reportUnknownMemberType] -- yaml.Loader methods may not have complete stubs
+    Loader.add_implicit_resolver(
         "tag:yaml.org,2002:float",
         _YAML12_ONLY_FLOAT,
         list("-+0123456789."),
@@ -139,7 +147,7 @@ def _yaml11_loader() -> type[Any]:
     # The constructor needs no change. PyYAML's 1.1 `construct_yaml_int` gives
     # a leading-zero integer to `int(text, 8)`, and Python accepts the `0o`
     # prefix when it matches the base.
-    Loader.add_implicit_resolver(  # type: ignore[reportUnknownMemberType] -- yaml.Loader methods may not have complete stubs
+    Loader.add_implicit_resolver(
         "tag:yaml.org,2002:int",
         _YAML12_ONLY_INT,
         list("-+0"),
@@ -154,10 +162,7 @@ def _yaml11_loader() -> type[Any]:
     # enumerates `=` as a literal matcher operator) emit bare `=` as plain
     # string content and expect it to round-trip as such, so treat it the
     # same way `construct_yaml_str` does instead of raising.
-    Loader.add_constructor(
-        "tag:yaml.org,2002:value",
-        yaml.CSafeLoader.construct_yaml_str,  # type: ignore[reportUnknownMemberType, reportUnknownArgumentType] -- yaml.Loader methods may not have complete stubs
-    )
+    Loader.add_constructor("tag:yaml.org,2002:value", _construct_value)
     return Loader
 
 
@@ -331,9 +336,9 @@ def _go_json_numbers(value: Any) -> Any:
     reports it: a document keyed `1e+06` came out keyed `1000000`.
     """
     if isinstance(value, dict):
-        return {key: _go_json_numbers(item) for key, item in value.items()}  # pyright: ignore[reportUnknownVariableType] -- the tree is Any by construction
+        return {key: _go_json_numbers(item) for key, item in value.items()}
     if isinstance(value, list):
-        return [_go_json_numbers(item) for item in value]  # pyright: ignore[reportUnknownVariableType] -- the tree is Any by construction
+        return [_go_json_numbers(item) for item in value]
     if isinstance(value, float):
         return _go_number(value)
     return value
@@ -465,27 +470,27 @@ def _go_like_loader() -> type[Any]:
     description written from memory costs.
     """
 
-    class Loader(yaml.CSafeLoader):  # type: ignore[reportUnknownBaseType] -- PyYAML stubs may be incomplete
+    class Loader(yaml.CSafeLoader):
         def resolve(self, kind: Any, value: Any, implicit: Any) -> str:
             # A plain scalar is the only scalar go-yaml resolves. A quoted one
             # is a string, and PyYAML gives the answer go-yaml gives for a
             # sequence and for a mapping.
             if kind is yaml.ScalarNode and implicit[0]:
                 return _go_resolve(value)[0]
-            return cast("str", super().resolve(kind, value, implicit))  # type: ignore[reportUnknownMemberType] -- PyYAML stubs may be incomplete
+            return cast("str", super().resolve(kind, value, implicit))
 
     # `str` and `null` keep PyYAML's constructors: the first returns the text
     # and the second returns None, whatever the spelling. Every other tag
     # needs Go's value, so `_go_resolve` answers again.
     for tag in (_BOOL_TAG, _INT_TAG, _FLOAT_TAG, _MERGE_TAG):
-        Loader.add_constructor(tag, _construct_go_scalar)  # type: ignore[reportUnknownMemberType] -- yaml.Loader methods may not have complete stubs
-    Loader.add_constructor(_MAP_TAG, _construct_go_map)  # type: ignore[reportUnknownMemberType] -- yaml.Loader methods may not have complete stubs
+        Loader.add_constructor(tag, _construct_go_scalar)
+    Loader.add_constructor(_MAP_TAG, _construct_go_map)
     return Loader
 
 
 def _validate_document(value: Any, builtin: str) -> JsonValue:
     try:
-        result: JsonValue = _JsonValue.validate_python(value)  # type: ignore[reportUnknownVariableType] -- TypeAdapter returns Any
+        result: JsonValue = _JsonValue.validate_python(value)
     except ValidationError as exc:
         raise ValueError(f"{builtin}: YAML document is not JSON-compatible: {exc}") from exc
     return result
@@ -506,13 +511,13 @@ def _single_document(values: Iterable[Any], builtin: str, stream_builtin: str) -
 
 
 def _parse_error_message(exc: Exception) -> str:
-    problem = getattr(exc, "problem", None)  # type: ignore[reportUnknownVariableType] -- dynamic attribute access on yaml exception
-    mark = getattr(exc, "problem_mark", None)  # type: ignore[reportUnknownVariableType] -- dynamic attribute access on yaml exception
+    problem = getattr(exc, "problem", None)
+    mark = getattr(exc, "problem_mark", None)
     if problem is None:
         return str(exc)
     if mark is None:
         return str(problem)
-    return f"{problem} at line {mark.line + 1}, column {mark.column + 1}"  # type: ignore[reportUnknownMemberType] -- mark is Any from getattr on yaml exception
+    return f"{problem} at line {mark.line + 1}, column {mark.column + 1}"
 
 
 def from_yaml(source: str) -> JsonValue:
@@ -599,7 +604,7 @@ def resolve_plain_scalar(value: str) -> str:
     tag = _go_resolve(value)[0]
     if tag != _STR_TAG:
         return tag
-    return cast("str", _scalar_resolver.resolve(yaml.ScalarNode, value, (True, False)))
+    return cast("str", _scalar_resolver.resolve(yaml.ScalarNode, value, (True, False)))  # type: ignore[no-untyped-call]  # types-PyYAML leaves BaseResolver.resolve unannotated
 
 
 class KubernetesDumper(yaml.CSafeDumper):
@@ -643,7 +648,7 @@ class _BlockStyleDumper(KubernetesDumper):
 
 def _represent_str(dumper: _BlockStyleDumper, data: str) -> yaml.Node:
     style = "|" if "\n" in data else None
-    return dumper.represent_scalar(  # type: ignore[reportUnknownMemberType] -- PyYAML stubs don't type represent_scalar's return precisely
+    return dumper.represent_scalar(
         "tag:yaml.org,2002:str",
         data,
         style=style,
@@ -659,14 +664,14 @@ def to_yaml(value: JsonValue) -> str:
     value = _validate_document(value, "toYAML")
     try:
         if isinstance(value, list):
-            rendered = yaml.dump_all(  # type: ignore[reportUnknownVariableType] -- PyYAML's dump_all overloads don't narrow the return type for a custom Dumper
+            rendered = yaml.dump_all(
                 value,
                 explicit_start=True,
                 sort_keys=False,
                 Dumper=_BlockStyleDumper,
             )
         else:
-            rendered = yaml.dump(  # type: ignore[reportUnknownVariableType] -- PyYAML's dump overloads don't narrow the return type for a custom Dumper
+            rendered = yaml.dump(
                 value,
                 sort_keys=False,
                 Dumper=_BlockStyleDumper,

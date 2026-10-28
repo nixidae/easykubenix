@@ -127,7 +127,8 @@ class Value:
 
     async def to_python(self) -> JsonValue:
         """The value as plain data: Nix's own `printValueAsJSON`, strict."""
-        return json.loads(await (await self.value()).to_json())
+        value: JsonValue = json.loads(await (await self.value()).to_json())
+        return value
 
     async def realise_string(self) -> str:
         """The value as a string, with every store path it names built.

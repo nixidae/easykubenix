@@ -17,6 +17,8 @@ The probe's own contract is checked against real stores; see
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pytest
 
 from ekn.storecheck import (
@@ -27,9 +29,17 @@ from ekn.storecheck import (
     walk,
 )
 
+if TYPE_CHECKING:
+    from collections.abc import Set
+
+    from ekn.storecheck import Probe
+
 CACHE_ENV = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-cacheEnv"
 HTTPX = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-python3.14-httpx"
 ABSENT = "cccccccccccccccccccccccccccccccc-never-pushed"
+
+#: A made-up world: substituter -> path -> references.
+type World = dict[str, dict[str, set[str]]]
 
 OBJECTS = [
     {
@@ -53,7 +63,7 @@ def anyio_backend() -> str:
     return "asyncio"
 
 
-def probe_from(world: dict[str, dict[str, set[str]]], *, broken: set[str] = frozenset()):
+def probe_from(world: World, *, broken: Set[str] = frozenset()) -> Probe:
     """A `Probe` over a made-up world: substituter -> path -> references."""
 
     async def probe(uri: str, base_name: str) -> tuple[set[str] | None, str | None]:
@@ -78,7 +88,7 @@ class TestTheUnionAcrossSubstituters:
         """`cacheEnv` is on nixkube.cachix.org and its member
         `python3.14-httpx` is only on cache.nixos.org. Either alone reports
         a false failure; this is the case that made the union necessary."""
-        world = {
+        world: World = {
             "https://nixkube.cachix.org": {CACHE_ENV: {HTTPX}},
             "https://cache.nixos.org": {HTTPX: set()},
         }
@@ -89,7 +99,7 @@ class TestTheUnionAcrossSubstituters:
         assert verdict.reachable == frozenset({CACHE_ENV, HTTPX})
 
     async def test_one_substituter_alone_reports_the_member_missing(self) -> None:
-        world = {"https://nixkube.cachix.org": {CACHE_ENV: {HTTPX}}}
+        world: World = {"https://nixkube.cachix.org": {CACHE_ENV: {HTTPX}}}
 
         verdict = await walk({CACHE_ENV}, list(world), probe_from(world))
 
@@ -99,14 +109,14 @@ class TestTheUnionAcrossSubstituters:
 class TestTheClosure:
     async def test_a_present_top_path_with_an_absent_member_still_fails(self) -> None:
         """Issue #8. Checking only the named paths passes this."""
-        world = {"https://cache.nixos.org": {CACHE_ENV: {ABSENT}}}
+        world: World = {"https://cache.nixos.org": {CACHE_ENV: {ABSENT}}}
 
         with pytest.raises(StorePathsUnavailableError, match="on no substituter"):
             await assert_fetchable(store_paths_in(OBJECTS), substituters=list(world), probe=probe_from(world))
 
     async def test_a_cycle_in_the_references_terminates(self) -> None:
         """A store path's references include itself, routinely."""
-        world = {"https://cache.nixos.org": {CACHE_ENV: {CACHE_ENV, HTTPX}, HTTPX: {CACHE_ENV}}}
+        world: World = {"https://cache.nixos.org": {CACHE_ENV: {CACHE_ENV, HTTPX}, HTTPX: {CACHE_ENV}}}
 
         verdict = await walk({CACHE_ENV}, list(world), probe_from(world))
 
@@ -118,7 +128,7 @@ class TestTheThreeAnswersStayThree:
     async def test_a_cache_that_cannot_answer_is_not_a_missing_path(self) -> None:
         """Reporting it as missing sends someone to push a path that is
         already there. The two need different fixes."""
-        world = {"https://cache.nixos.org": {}}
+        world: World = {"https://cache.nixos.org": {}}
 
         with pytest.raises(StorePathsUnavailableError, match="could not answer") as caught:
             await assert_fetchable(
@@ -132,7 +142,7 @@ class TestTheThreeAnswersStayThree:
     async def test_a_broken_cache_beside_a_working_one_is_not_a_problem(self) -> None:
         """The path was served. One substituter being down says nothing
         about it."""
-        world = {
+        world: World = {
             "https://down.example": {},
             "https://cache.nixos.org": {CACHE_ENV: set()},
         }
@@ -144,7 +154,7 @@ class TestTheThreeAnswersStayThree:
         )
 
     async def test_everything_fetchable_passes_quietly(self) -> None:
-        world = {"https://cache.nixos.org": {CACHE_ENV: set()}}
+        world: World = {"https://cache.nixos.org": {CACHE_ENV: set()}}
 
         await assert_fetchable(store_paths_in(OBJECTS), substituters=list(world), probe=probe_from(world))
 

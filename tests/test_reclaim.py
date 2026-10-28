@@ -20,7 +20,8 @@ _OBJECT = {
 }
 
 
-def _apply(manager: str, fields: dict, api_version: str = "apps/v1") -> dict:
+# A managedFields entry, as `rewrite_managed_fields` takes it.
+def _apply(manager: str, fields: dict[str, Any], api_version: str = "apps/v1") -> dict[str, Any]:
     return {
         "manager": manager,
         "operation": "Apply",
@@ -30,12 +31,12 @@ def _apply(manager: str, fields: dict, api_version: str = "apps/v1") -> dict:
     }
 
 
-_PROBE = {"f:spec": {"f:template": {"f:spec": {"f:livenessProbe": {"f:tcpSocket": {}}}}}}
-_REPLICAS = {"f:spec": {"f:replicas": {}}}
+_PROBE: dict[str, Any] = {"f:spec": {"f:template": {"f:spec": {"f:livenessProbe": {"f:tcpSocket": {}}}}}}
+_REPLICAS: dict[str, Any] = {"f:spec": {"f:replicas": {}}}
 
 
 class TestWhatMoves:
-    def test_the_old_manager_s_apply_record_is_renamed(self):
+    def test_the_old_manager_s_apply_record_is_renamed(self) -> None:
         """Renamed, not deleted. A deleted record leaves its fields unowned,
         and nothing ever removes an unowned field -- that is the bug, not the
         fix."""
@@ -45,7 +46,7 @@ class TestWhatMoves:
         assert [e["manager"] for e in out] == ["argocd"]
         assert out[0]["fieldsV1"] == _PROBE
 
-    def test_an_update_record_is_left_alone(self):
+    def test_an_update_record_is_left_alone(self) -> None:
         """`kube-controller-manager`'s `status` is one of these, and
         server-side apply does not consult an Update record for removal, so
         renaming it would claim ownership this cannot act on."""
@@ -66,7 +67,7 @@ class TestWhatMoves:
         untouched = next(e for e in out if e["operation"] == "Update")
         assert untouched["manager"] == "kube-controller-manager"
 
-    def test_a_manager_nobody_named_is_left_alone(self):
+    def test_a_manager_nobody_named_is_left_alone(self) -> None:
         entries = [_apply("ekn", _PROBE), _apply("some-operator", _REPLICAS)]
 
         out = rewrite_managed_fields(entries, old=["ekn"], new="argocd")
@@ -76,15 +77,15 @@ class TestWhatMoves:
 
 
 class TestWhenNothingShouldHappen:
-    def test_no_match_answers_none(self):
+    def test_no_match_answers_none(self) -> None:
         """So a caller can skip the write. Patching an object to the value it
         already has is a write nobody asked for."""
         assert rewrite_managed_fields([_apply("argocd", _PROBE)], old=["ekn"], new="argocd") is None
 
-    def test_reclaiming_onto_itself_answers_none(self):
+    def test_reclaiming_onto_itself_answers_none(self) -> None:
         assert rewrite_managed_fields([_apply("ekn", _PROBE)], old=["ekn"], new="ekn") is None
 
-    def test_an_empty_old_set_answers_none(self):
+    def test_an_empty_old_set_answers_none(self) -> None:
         assert rewrite_managed_fields([_apply("ekn", _PROBE)], old=[], new="argocd") is None
 
 
@@ -92,7 +93,7 @@ class TestTheMerge:
     """The case that would otherwise write a shape the API server never
     produces: two records with one manager, operation and apiVersion."""
 
-    def test_two_records_in_one_slot_become_one(self):
+    def test_two_records_in_one_slot_become_one(self) -> None:
         entries = [_apply("ekn", _PROBE), _apply("argocd", _REPLICAS)]
 
         out = rewrite_managed_fields(entries, old=["ekn"], new="argocd")
@@ -101,7 +102,7 @@ class TestTheMerge:
         assert len(out) == 1
         assert out[0]["manager"] == "argocd"
 
-    def test_the_merged_record_owns_both_field_sets(self):
+    def test_the_merged_record_owns_both_field_sets(self) -> None:
         """The negative control for the test above: a merge that dropped one
         side would still answer one record."""
         entries = [_apply("ekn", _PROBE), _apply("argocd", _REPLICAS)]
@@ -113,7 +114,7 @@ class TestTheMerge:
         assert fields["f:spec"]["f:replicas"] == {}
         assert fields["f:spec"]["f:template"]["f:spec"]["f:livenessProbe"]["f:tcpSocket"] == {}
 
-    def test_a_different_api_version_is_a_different_slot(self):
+    def test_a_different_api_version_is_a_different_slot(self) -> None:
         """The API server keys a record by manager, operation, apiVersion and
         subresource. Merging across apiVersions would fold two field sets
         that describe different schemas."""
@@ -125,7 +126,7 @@ class TestTheMerge:
         assert len(out) == 2
         assert {e["apiVersion"] for e in out} == {"apps/v1", "apps/v1beta1"}
 
-    def test_the_input_is_not_mutated(self):
+    def test_the_input_is_not_mutated(self) -> None:
         """`reclaim_one` logs the live owners after calling this, and would
         report the new name for all of them if this edited in place."""
         entries = [_apply("ekn", _PROBE)]
@@ -199,8 +200,8 @@ class TestTheCommand:
 
         monkeypatch.setattr(cli_module, "evaluate_kubeapply_config", _evaluate)
         monkeypatch.setattr(cli_module, "reclaim", _reclaim)
-        monkeypatch.setattr(cli_module.kr8s.asyncio, "api", _api)
-        monkeypatch.setattr(cli_module.clusterfence, "read_cluster_id", _cluster_id)
+        monkeypatch.setattr("kr8s.asyncio.api", _api)
+        monkeypatch.setattr("ekn.clusterfence.read_cluster_id", _cluster_id)
 
     async def test_the_default_source_is_ekn(self, monkeypatch: Any) -> None:
         """What a whole-instance apply wrote before `deployment.fieldManager`

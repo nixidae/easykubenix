@@ -14,12 +14,24 @@ nothing until this moved.
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 import anyio
 import pytest
 
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable, Iterable, Iterator
+
+    from pyinstrument import Profiler
+
 pyinstrument = pytest.importorskip("pyinstrument")
+
+
+class _Rendered(Protocol):
+    """What `_split` reads of a profiler."""
+
+    def output(self, renderer: Any) -> str: ...
+
 
 SLEEP = 0.05
 COUNT = 6
@@ -40,13 +52,13 @@ async def fanned_out() -> None:
             tg.start_soon(waits_here)
 
 
-def _frames(frame: dict[str, Any]):
+def _frames(frame: dict[str, Any]) -> Iterator[dict[str, Any]]:
     yield frame
     for child in frame.get("children") or []:
         yield from _frames(child)
 
 
-def _split(profiler: pyinstrument.Profiler) -> tuple[float, float]:
+def _split(profiler: _Rendered) -> tuple[float, float]:
     """Seconds charged to the loop's selector, and to the awaiting function.
 
     **`selectors` only, never `_run_once`.** `base_events._run_once` is the
@@ -60,7 +72,7 @@ def _split(profiler: pyinstrument.Profiler) -> tuple[float, float]:
     """
     from pyinstrument.renderers import JSONRenderer
 
-    root = json.loads(profiler.output(renderer=JSONRenderer()))["root_frame"] or {}
+    root: dict[str, Any] = json.loads(profiler.output(renderer=JSONRenderer()))["root_frame"] or {}
     selector = 0.0
     awaiting = 0.0
     for frame in _frames(root):
@@ -84,7 +96,7 @@ class _FakeProfiler:
         return json.dumps({"root_frame": self._root})
 
 
-def _frame(path: str, function: str, time: float, children=()) -> dict[str, Any]:
+def _frame(path: str, function: str, time: float, children: Iterable[dict[str, Any]] = ()) -> dict[str, Any]:
     return {"file_path_short": path, "function": function, "time": time, "children": list(children)}
 
 
@@ -102,7 +114,7 @@ def test_split_does_not_charge_the_loop_driver() -> None:
         ],
     )
 
-    selector, awaiting = _split(_FakeProfiler(tree))  # type: ignore[arg-type]
+    selector, awaiting = _split(_FakeProfiler(tree))
 
     assert awaiting == 0.297
     assert selector == 0.003, "only the selector's own time counts, not its ancestor's"
@@ -112,16 +124,16 @@ def test_split_still_sees_a_swallowed_wait() -> None:
     """The other direction, so the fix above cannot pass by charging nothing."""
     tree = _frame("asyncio/base_events.py", "_run_once", 0.30, [_frame("selectors.py", "select", 0.30)])
 
-    selector, awaiting = _split(_FakeProfiler(tree))  # type: ignore[arg-type]
+    selector, awaiting = _split(_FakeProfiler(tree))
 
     assert selector == 0.30
     assert awaiting == 0
 
 
 @pytest.mark.parametrize("work", [sequentially, fanned_out], ids=["sequential", "fanned-out"])
-def test_starting_inside_the_loop_attributes_the_wait(work) -> None:
-    async def run() -> pyinstrument.Profiler:
-        profiler = pyinstrument.Profiler(interval=0.001, async_mode="enabled")
+def test_starting_inside_the_loop_attributes_the_wait(work: Callable[[], Awaitable[None]]) -> None:
+    async def run() -> Profiler:
+        profiler: Profiler = pyinstrument.Profiler(interval=0.001, async_mode="enabled")
         profiler.start()
         try:
             await work()
@@ -140,7 +152,7 @@ def test_starting_inside_the_loop_attributes_the_wait(work) -> None:
 
 
 @pytest.mark.parametrize("work", [sequentially, fanned_out], ids=["sequential", "fanned-out"])
-def test_starting_outside_the_loop_loses_the_wait(work) -> None:
+def test_starting_outside_the_loop_loses_the_wait(work: Callable[[], Awaitable[None]]) -> None:
     """The arm that documents why the other one is written that way.
 
     Without this the first test passes for any placement that happens to

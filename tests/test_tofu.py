@@ -7,9 +7,11 @@ import pytest
 import structlog.testing
 from anyio import Path
 
-from ekn.cli import KubeApply, Tofu, _check_tofu_units, parse
+from ekn._cli import Command
+from ekn.cli import KubeApply, Tofu, TofuApply, TofuOutput, _check_tofu_units, parse
 from ekn.eval import TofuUnit
 from ekn.tofu import (
+    OrphanScan,
     TofuError,
     config_json,
     dependents,
@@ -25,6 +27,14 @@ from ekn.tofuschema import UNITS_ANNOTATION, shipped_units
 
 if TYPE_CHECKING:
     import pathlib
+
+
+def parse_as[C: Command](kind: type[C], argv: list[str]) -> C:
+    """`parse`, which a test expects to give a `kind`."""
+    command = parse(argv)
+    assert isinstance(command, kind), type(command).__name__
+    return command
+
 
 #: A `tofu` that records how it was called and succeeds, so a test can assert
 #: the chain without OpenTofu or a provider anywhere near it. `prepare` runs a
@@ -266,17 +276,20 @@ class TestCommandLine:
 
     def test_apply_prompts_unless_auto_approve_is_given(self) -> None:
         """Nothing sets `TF_IN_AUTOMATION`, so tofu asks as usual by default."""
-        assert parse(["tofu", "apply", "--target", "infra", "-f", "."]).auto_approve is False
-        assert parse(["tofu", "apply", "--target", "infra", "--auto-approve", "-f", "."]).auto_approve is True
+        assert parse_as(TofuApply, ["tofu", "apply", "--target", "infra", "-f", "."]).auto_approve is False
+        assert (
+            parse_as(TofuApply, ["tofu", "apply", "--target", "infra", "--auto-approve", "-f", "."]).auto_approve
+            is True
+        )
 
     def test_a_target_is_required(self) -> None:
         with pytest.raises(SystemExit):
             parse(["tofu", "apply", "-f", "."])
 
     def test_kubeapply_takes_a_tofu_kubeconfig(self) -> None:
-        command = parse(["kubeapply", "--kubeconfig-from-tofu", "infra:kubeconfig", "-f", "."])
+        command = parse_as(KubeApply, ["kubeapply", "--kubeconfig-from-tofu", "infra:kubeconfig", "-f", "."])
         assert command.kubeconfig_from_tofu == "infra:kubeconfig"
-        assert parse(["kubeapply", "-f", "."]).kubeconfig_from_tofu is None
+        assert parse_as(KubeApply, ["kubeapply", "-f", "."]).kubeconfig_from_tofu is None
 
 
 class TestDependents:
@@ -453,18 +466,18 @@ class TestOrphanedState:
         await (root / "infra").mkdir(parents=True)
         units = [_unit(tmp_path, "infra", "/nonexistent", {})]
 
-        assert await orphaned_state(units, root) == (1, [])
+        assert await orphaned_state(units, root) == OrphanScan(1, [])
 
     async def test_a_deleted_unit_leaves_its_state_behind(self, tmp_path: pathlib.Path) -> None:
         root = Path(tmp_path / "work")
         await (root / "infra").mkdir(parents=True)
         await (root / "dns").mkdir()
 
-        assert await orphaned_state([_unit(tmp_path, "infra", "/nonexistent", {})], root) == (2, ["dns"])
+        assert await orphaned_state([_unit(tmp_path, "infra", "/nonexistent", {})], root) == OrphanScan(2, ["dns"])
 
     async def test_no_root_yet_is_not_an_orphan(self, tmp_path: pathlib.Path) -> None:
         """Nothing has run here, so there is nothing to have leaked."""
-        assert await orphaned_state([], Path(tmp_path / "never-created")) == (0, [])
+        assert await orphaned_state([], Path(tmp_path / "never-created")) == OrphanScan(0, [])
 
 
 class TestAdoptionNotice:
@@ -506,8 +519,7 @@ class TestOutputCommandLine:
     `.ekn/`, which is a private working directory rather than an interface."""
 
     def test_it_takes_a_target_and_an_output_name(self) -> None:
-        command = parse(["tofu", "output", "--target", "infra", "kubeconfig", "-f", "."])
-        assert type(command).__name__ == "TofuOutput"
+        command = parse_as(TofuOutput, ["tofu", "output", "--target", "infra", "kubeconfig", "-f", "."])
         assert command.target == "infra"
         assert command.name == "kubeconfig"
 

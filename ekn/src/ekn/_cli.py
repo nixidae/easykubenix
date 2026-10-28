@@ -79,7 +79,7 @@ class Spec:
     complete: Completer | None = None
 
 
-def opt(  # noqa: PLR0913 -- one keyword for each thing a declaration can say; a dict would hide the names from the reader and from pyright
+def opt(  # noqa: PLR0913 -- one keyword for each thing a declaration can say; a dict would hide the names from the reader and from the type checker
     default: Any = None,
     *,
     help: str,  # noqa: A002 -- argparse names the parameter `help`, and so did clypi
@@ -281,8 +281,8 @@ def command_name(command: type[Command]) -> str:
     """The name of *command* on the command line."""
     if command.cli_name:
         return command.cli_name
-    head, *rest = command.__name__
-    return head.lower() + "".join("-" + c.lower() if c.isupper() else c for c in rest)
+    name = command.__name__
+    return name[0].lower() + "".join("-" + c.lower() if c.isupper() else c for c in name[1:])
 
 
 def _describe(command: type[Command]) -> str:

@@ -29,6 +29,7 @@ command.
 from __future__ import annotations
 
 import contextlib
+import functools
 import json
 import os
 import shutil
@@ -186,7 +187,9 @@ async def prepare(unit: TofuUnit, root: Path | None = None) -> Path:
     try:
         await _run(unit, workdir, ["init", "-input=false"])
     except TofuError:
-        await anyio.to_thread.run_sync(shutil.rmtree, str(workdir / ".terraform"), True, abandon_on_cancel=True)
+        await anyio.to_thread.run_sync(
+            functools.partial(shutil.rmtree, workdir / ".terraform", ignore_errors=True), abandon_on_cancel=True
+        )
         raise
     location = await state_location(workdir)
     _log.info(f"{unit.name}: state at {location}")

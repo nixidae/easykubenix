@@ -7,9 +7,11 @@ nobody watching. Issue nixidae/nixidae#450.
 
 from __future__ import annotations
 
+from types import ModuleType
 from typing import Any, ClassVar
 
 import pytest
+from json_at import at
 
 from ekn.enginepause import (
     PAUSED_REPLICAS_ANNOTATION,
@@ -53,11 +55,13 @@ class FakeWorkload:
 
     @property
     def replicas(self) -> int:
-        return self.raw["spec"]["replicas"]
+        replicas: int = self.raw["spec"]["replicas"]
+        return replicas
 
     @property
     def annotations(self) -> dict[str, str]:
-        return self.raw["metadata"]["annotations"]
+        annotations: dict[str, str] = self.raw["metadata"]["annotations"]
+        return annotations
 
 
 class FakeApi:
@@ -68,7 +72,7 @@ class FakeApi:
 
 
 @pytest.fixture
-def patched(monkeypatch: pytest.MonkeyPatch):
+def patched(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
     """Route `_fetch` at the fake cluster.
 
     `_fetch` is patched rather than kr8s' classes, because kr8s resolves a
@@ -191,7 +195,7 @@ class TestTheEngineIsInTheApplySet:
     def test_the_pause_target_is_not_applied(self) -> None:
         kept = without_pause_targets([self.CONTROLLER_SPEC, self.OTHER_SPEC], [CONTROLLER])
 
-        assert [o["metadata"]["name"] for o in kept] == ["unrelated"]
+        assert [at(o, "metadata", "name") for o in kept] == ["unrelated"]
 
     def test_everything_else_is_still_applied(self) -> None:
         """Negative control. Excluding too much would make a full deploy

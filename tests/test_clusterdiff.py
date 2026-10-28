@@ -1,14 +1,22 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 import httpx
 import kr8s
 import pytest
+from json_at import at
 
 from ekn import clusterdiff
 from ekn.clusterdiff import _normalize, cluster_diff
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
+    from huggorm.jsonprimop import JsonValue
+    from kappy.apply import Manifest
+    from kr8s.asyncio import Api
 
 
 @pytest.fixture(scope="module")
@@ -34,6 +42,10 @@ class FakeApi:
 
     namespace = "default"
 
+    def as_api(self) -> Api:
+        """This fake, typed as the client it stands in for."""
+        return cast("Api", self)
+
     def __init__(self, script: dict[tuple[str, str], Any]) -> None:
         self._script = script
         self.calls: list[tuple[str, str, dict[str, Any] | None]] = []
@@ -49,7 +61,7 @@ class FakeApi:
         content: str | None = None,
         headers: dict[str, str] | None = None,
         params: dict[str, str] | None = None,
-    ):
+    ) -> AsyncIterator[_FakeResponse]:
         self.calls.append((method, url or "", params))
         result = self._script[(method, url or "")]
         if isinstance(result, Exception):
@@ -111,7 +123,7 @@ class _CrdApi(FakeApi):
 
 class TestNormalize:
     def test_strips_noisy_metadata_and_status(self) -> None:
-        obj = {
+        obj: Manifest = {
             "kind": "ConfigMap",
             "metadata": {
                 "name": "cfg",
@@ -132,14 +144,15 @@ class TestNormalize:
         result = _normalize(obj)
 
         assert "status" not in result
-        assert result["metadata"] == {"name": "cfg", "annotations": {"keep-me": "yes"}}
+        metadata: JsonValue = {"name": "cfg", "annotations": {"keep-me": "yes"}}
+        assert result["metadata"] == metadata
         assert result["data"] == {"key": "value"}
 
 
 class TestClusterDiff:
     @pytest.mark.parametrize("skip_crds", [False, True])
     async def test_skip_crds_avoids_live_reads_and_dry_runs(self, skip_crds: bool) -> None:
-        crd = {
+        crd: Manifest = {
             "apiVersion": "apiextensions.k8s.io/v1",
             "kind": "CustomResourceDefinition",
             "metadata": {"name": "probes.example.org"},
@@ -155,7 +168,7 @@ class TestClusterDiff:
                 ("PATCH", "configmaps/cfg"): cfg,
             }
         )
-        result = await cluster_diff([crd, cfg], api=api, skip_crds=skip_crds)  # type: ignore[arg-type]
+        result = await cluster_diff([crd, cfg], api=api.as_api(), skip_crds=skip_crds)
         assert "+  key: updated" in result
         assert ("CustomResourceDefinition" in result) is (not skip_crds)
         crd_calls = [(method, url) for method, url, _ in api.calls if url == crd_url]
@@ -165,13 +178,13 @@ class TestClusterDiff:
         )
 
     async def test_skip_crd_only_diff_needs_no_object_api_calls(self) -> None:
-        crd = {
+        crd: Manifest = {
             "apiVersion": "apiextensions.k8s.io/v1",
             "kind": "CustomResourceDefinition",
             "metadata": {"name": "probes.example.org"},
         }
         api = FakeApi({})
-        assert await cluster_diff([crd], api=api, skip_crds=True) == ""  # type: ignore[arg-type]
+        assert await cluster_diff([crd], api=api.as_api(), skip_crds=True) == ""
         assert api.calls == []
 
     async def test_no_diff_when_live_matches_predicted(self) -> None:
@@ -183,7 +196,7 @@ class TestClusterDiff:
             }
         )
 
-        result = await cluster_diff([spec], api=api)  # type: ignore[arg-type]
+        result = await cluster_diff([spec], api=api.as_api())
 
         assert result == ""
 
@@ -196,7 +209,7 @@ class TestClusterDiff:
             }
         )
 
-        result = await cluster_diff([spec], api=api)  # type: ignore[arg-type]
+        result = await cluster_diff([spec], api=api.as_api())
 
         assert "live/default/ConfigMap/brand-new" in result
         assert "predicted/default/ConfigMap/brand-new" in result
@@ -213,7 +226,7 @@ class TestClusterDiff:
             }
         )
 
-        result = await cluster_diff([spec], api=api)  # type: ignore[arg-type]
+        result = await cluster_diff([spec], api=api.as_api())
 
         assert "-  key: old" in result
         assert "+  key: updated" in result
@@ -233,14 +246,14 @@ class TestClusterDiff:
             }
         )
 
-        result = await cluster_diff([spec], api=api)  # type: ignore[arg-type]
+        result = await cluster_diff([spec], api=api.as_api())
 
         assert "argocd/ConfigMap/argocd-cm" in result
         assert "+data:" in result
         assert "+  key: value" in result
 
     async def test_unregistered_kind_is_reported_not_crashed(self) -> None:
-        application = {
+        application: Manifest = {
             "apiVersion": "argoproj.io/v1alpha1",
             "kind": "Application",
             "metadata": {"name": "bootstrap", "namespace": "argocd"},
@@ -254,7 +267,7 @@ class TestClusterDiff:
             }
         )
 
-        result = await cluster_diff([application, cfg], api=api)  # type: ignore[arg-type]
+        result = await cluster_diff([application, cfg], api=api.as_api())
 
         assert "argocd/Application/bootstrap" in result
         assert "not yet registered" in result
@@ -280,10 +293,10 @@ class TestSeededObjects:
             },
             {"password"},
         )
-        assert redacted["stringData"]["password"] == clusterdiff._REDACTED
-        assert redacted["stringData"]["username"] == "ci"
-        assert redacted["data"]["password"] == clusterdiff._REDACTED
+        assert at(redacted, "stringData", "password") == clusterdiff._REDACTED
+        assert at(redacted, "stringData", "username") == "ci"
+        assert at(redacted, "data", "password") == clusterdiff._REDACTED
 
     def test_nothing_is_redacted_without_seeded_fields(self) -> None:
-        obj = {"kind": "Secret", "stringData": {"password": "s3cret"}}
+        obj: Manifest = {"kind": "Secret", "stringData": {"password": "s3cret"}}
         assert clusterdiff._redact(obj, set()) == obj
