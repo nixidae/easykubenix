@@ -77,7 +77,7 @@
 
       # The entry point itself, which is how a consumer evaluates a
       # configuration of their own.
-      lib.easykubenix = import ./default.nix;
+      lib.easykubenix = import ./eval.nix;
 
       devShells = forEachSystem (
         system:

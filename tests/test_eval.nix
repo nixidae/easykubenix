@@ -1,7 +1,7 @@
 let
   sources = import ../nix/sources.nix;
   pkgs = import sources.nixpkgs { };
-  easy = import ../. {
+  easy = (import ../. { }).lib.easykubenix {
     inherit pkgs;
     modules = [
       ({ config, ... }: {
@@ -17,7 +17,7 @@ let
       })
     ];
   };
-  easyAfter = import ../. {
+  easyAfter = (import ../. { }).lib.easykubenix {
     inherit pkgs;
     modules = [
       {
@@ -36,7 +36,7 @@ let
       }
     ];
   };
-  easyCoercion = import ../. {
+  easyCoercion = (import ../. { }).lib.easykubenix {
     inherit pkgs;
     modules = [
       {
@@ -49,7 +49,7 @@ let
       }
     ];
   };
-  easyCoercionDisabled = import ../. {
+  easyCoercionDisabled = (import ../. { }).lib.easykubenix {
     inherit pkgs;
     modules = [
       {
@@ -64,7 +64,7 @@ let
   # Top-level `metadata.labels`/`metadata.annotations` are the typed
   # `labelValueType` option -- with coercion disabled that's plain
   # `types.str`, so a bool there is rejected by the module system itself.
-  easyCoercionDisabledThrows = import ../. {
+  easyCoercionDisabledThrows = (import ../. { }).lib.easykubenix {
     inherit pkgs;
     modules = [
       {
@@ -81,7 +81,7 @@ let
   # the pipeline must change that marker back into a list. The order of the init
   # containers is important, so the numbered marker must keep it. This is the
   # case that `needsMarkerPass` in kubernetes.nix guards.
-  easyInitContainers = import ../. {
+  easyInitContainers = (import ../. { }).lib.easykubenix {
     inherit pkgs;
     modules = [
       (
@@ -122,7 +122,7 @@ let
   # same path. `ekn.lib.kubeValueType` must resolve it on its own, so the
   # rendered manifest holds a real list and no `_type` marker. Nothing converts
   # markers after the merge unless a generator or a transformer runs.
-  easyLoneNamedList = import ../. {
+  easyLoneNamedList = (import ../. { }).lib.easykubenix {
     inherit pkgs;
     modules = [
       (
@@ -140,7 +140,7 @@ let
   # same shape a Helm chart produces. The other patches one entry by name and
   # adds a second entry. This is the merge that removes the need for a
   # pre-conversion pass in helm.nix and importyaml.nix.
-  easyNamedListAcrossModules = import ../. {
+  easyNamedListAcrossModules = (import ../. { }).lib.easykubenix {
     inherit pkgs;
     modules = [
       {
@@ -170,7 +170,7 @@ let
   # A module declares its own option with the recursive kube type, then hoists
   # the result into `kubernetes.objects`. This is the shape helm.nix and
   # importyaml.nix use. A marker must survive the hoist and still resolve.
-  easyHoistedFromSubmodule = import ../. {
+  easyHoistedFromSubmodule = (import ../. { }).lib.easykubenix {
     inherit pkgs;
     modules = [
       (
@@ -206,7 +206,7 @@ let
   # resolve a marker. Forcing this must throw rather than write a manifest with
   # a literal `_type` field.
   easyCrdMarkerThrows =
-    (import ../. {
+    ((import ../. { }).lib.easykubenix {
       inherit pkgs;
       modules = [
         (
@@ -228,7 +228,7 @@ let
   # The same guard, for the third marker. `mkIfExists` is resolved by
   # `conditionalAttrsOf`, which a CRD also goes around.
   easyCrdIfExistsMarkerThrows =
-    (import ../. {
+    ((import ../. { }).lib.easykubenix {
       inherit pkgs;
       modules = [
         (
@@ -252,7 +252,7 @@ let
   # this instance's `generated`. The `bootstrap` target has no routed objects
   # at all, only submodule ones, which is the normal shape for one -- and the
   # case the target-name union in kubernetes.nix would otherwise miss.
-  easyGitOpsSubmodule = import ../. {
+  easyGitOpsSubmodule = (import ../. { }).lib.easykubenix {
     inherit pkgs;
     modules = [
       {
@@ -286,7 +286,7 @@ let
   # A target that names its successor as field manager and stamps tracking
   # metadata onto everything it renders. Both halves of the handover a
   # bootstrap target needs: who applied the fields, and who owns the objects.
-  easyGitOpsTargetMetadata = import ../. {
+  easyGitOpsTargetMetadata = (import ../. { }).lib.easykubenix {
     inherit pkgs;
     modules = [
       (
@@ -359,7 +359,7 @@ let
   # A unit whose name cannot be a label value. Underscores are legal inside
   # one but not at its ends, which is the sort of name that renders fine and
   # then fails per object at the API server.
-  easyBadUnitName = import ../. {
+  easyBadUnitName = (import ../. { }).lib.easykubenix {
     inherit pkgs;
     modules = [
       {
@@ -372,7 +372,7 @@ let
 
   # A unit declining the label that scopes its pruning. Legal once, and now
   # rejected: its objects would look unowned to a whole-instance `--prune`.
-  easyDeclinedUnitLabel = import ../. {
+  easyDeclinedUnitLabel = (import ../. { }).lib.easykubenix {
     inherit pkgs;
     modules = [
       (
@@ -393,7 +393,7 @@ let
   # the documented shape -- `deployment.units.<name>.modules` says a nested
   # instance's routing is ignored, because unit names belong to one instance
   # and a nested instance's are a different set. Forcing it must not throw.
-  easyNestedRoutingIgnored = import ../. {
+  easyNestedRoutingIgnored = (import ../. { }).lib.easykubenix {
     inherit pkgs;
     modules = [
       {
@@ -418,7 +418,7 @@ let
   # Unit dependencies, with the two shapes that make a closure a closure:
   # `bootstrap` reaches `certs` only through `secrets`, and `secrets` and
   # `argocd` both reach `certs`, which must still appear once.
-  easyUnitDependencies = import ../. {
+  easyUnitDependencies = (import ../. { }).lib.easykubenix {
     inherit pkgs;
     modules = [
       {
@@ -453,7 +453,7 @@ let
   };
 
   # A cycle. Forcing this must throw and print the chain.
-  easyUnitDependencyCycle = import ../. {
+  easyUnitDependencyCycle = (import ../. { }).lib.easykubenix {
     inherit pkgs;
     modules = [
       {
@@ -473,7 +473,7 @@ let
   };
 
   # A dependency no `deployment.units` entry declares.
-  easyUnknownUnitDependency = import ../. {
+  easyUnknownUnitDependency = (import ../. { }).lib.easykubenix {
     inherit pkgs;
     modules = [
       {
@@ -498,7 +498,7 @@ let
   # through `kubernetes.generated`, `checked`, `warnings`, this priority and
   # back to itself. `error: infinite recursion`, pointing at internal.nix and
   # naming neither kluctl nor the option at fault.
-  easyKluctlScriptReadsManifest = import ../. {
+  easyKluctlScriptReadsManifest = (import ../. { }).lib.easykubenix {
     inherit pkgs;
     modules = [
       (
@@ -520,7 +520,7 @@ let
   # `kubernetes.objects` tree. One Deployment exists. The second module names
   # a namespace, a Kind and an object that do not, and must create none of
   # them, while still patching the one that does.
-  easyConditionalObjects = import ../. {
+  easyConditionalObjects = (import ../. { }).lib.easykubenix {
     inherit pkgs;
     modules = [
       { kubernetes.objects.default.Deployment.api.spec.replicas = 1; }
@@ -568,7 +568,7 @@ let
   # A seeded Secret, shaped like a real ArgoCD repository credential: four
   # `stringData` keys, one of them a reference, plus the label ArgoCD needs
   # to discover it.
-  easySeeded = import ../. {
+  easySeeded = (import ../. { }).lib.easykubenix {
     inherit pkgs;
     modules = [
       (
@@ -592,7 +592,7 @@ let
   # Routing a seeded Secret to a GitOps target must be refused: ArgoCD would
   # apply the reference as a literal value.
   easySeededGitOpsThrows =
-    (import ../. {
+    ((import ../. { }).lib.easykubenix {
       inherit pkgs;
       modules = [
         (
@@ -613,7 +613,7 @@ let
   # `ekn.envSeeded` needs something to mark. Wrapping an object with no
   # reference in it is a mistake, not a no-op.
   easyEnvSeededWithoutReferenceThrows =
-    (import ../. {
+    ((import ../. { }).lib.easykubenix {
       inherit pkgs;
       modules = [
         (
@@ -635,7 +635,7 @@ let
   #
   # The module below is written in exactly that shape, so it only evaluates
   # at all if the argument arrived.
-  easyForwardedSpecialArgs = import ../. {
+  easyForwardedSpecialArgs = (import ../. { }).lib.easykubenix {
     inherit pkgs;
     specialArgs.mkThing = name: { kubernetes.objects.default.ConfigMap.${name}.data.made = "yes"; };
     modules = [
@@ -652,7 +652,7 @@ let
 
   # `parent` is gitops.nix's own, and a consumer must not be able to shadow
   # it by passing one at the top level.
-  easyParentStillWins = import ../. {
+  easyParentStillWins = (import ../. { }).lib.easykubenix {
     inherit pkgs;
     specialArgs.parent = "shadowed";
     modules = [
@@ -676,7 +676,7 @@ let
 
   # Every old name still works, so a consumer converts at its own pace rather
   # than in one commit. `mkRenamedOptionModule` warns with the new path.
-  easyOldGitOpsNames = import ../. {
+  easyOldGitOpsNames = (import ../. { }).lib.easykubenix {
     inherit pkgs;
     modules = [
       {
@@ -696,7 +696,7 @@ let
   # `kubeadmConfig.networking`, while `--service-cluster-ip-range` was a
   # literal -- so the option could not make the harness accept an IPv6 Service,
   # whatever it was set to.
-  easyCustomServiceSubnet = import ../. {
+  easyCustomServiceSubnet = (import ../. { }).lib.easykubenix {
     inherit pkgs;
     modules = [
       {
@@ -734,7 +734,7 @@ let
         name: without-namespace
     '';
 
-  easyImportTransformers = import ../. {
+  easyImportTransformers = (import ../. { }).lib.easykubenix {
     inherit pkgs;
     modules = [
       (
@@ -825,7 +825,7 @@ let
   # output still has to go through `kubernetes.objects`, whose freeform type is
   # `kubeValueType`, and `namedListOf` resolves the marker when it merges. So
   # `mkNamedList` is safe here and needs no pass.
-  easyImportTransformerMarker = import ../. {
+  easyImportTransformerMarker = (import ../. { }).lib.easykubenix {
     inherit pkgs;
     modules = [
       (
@@ -866,7 +866,7 @@ let
 
   # The control: the same manifest with no transformer. The namespace-less
   # object lands in `none` and renders without a namespace.
-  easyImportNoTransformers = import ../. {
+  easyImportNoTransformers = (import ../. { }).lib.easykubenix {
     inherit pkgs;
     modules = [
       (
@@ -884,7 +884,7 @@ let
   # otherwise skip it in silence.
   tofuUnitsAnnotated =
     names:
-    (import ../. {
+    ((import ../. { }).lib.easykubenix {
       inherit pkgs;
       modules = [
         (
@@ -904,7 +904,7 @@ let
       ];
     }).config.kubernetes.generated;
 
-  easyNoEnvironment = import ../. {
+  easyNoEnvironment = (import ../. { }).lib.easykubenix {
     inherit pkgs;
     modules = [
       { kubernetes.objects.default.ConfigMap.test.data.key = "hello"; }
@@ -914,14 +914,14 @@ let
   # `kubernetes.clusterInfo.ipFamilies`: the IP stack the API server admits a
   # Service against. The default is a single-stack IPv4 cluster, and
   # `validation.serviceSubnet` follows the declaration.
-  easyClusterInfo = import ../. {
+  easyClusterInfo = (import ../. { }).lib.easykubenix {
     inherit pkgs;
     modules = [ ];
   };
 
   # The dual-stack cluster, declared once: the Service renders, and the
   # validation harness's service CIDR follows the same declaration.
-  easyDualStackCluster = import ../. {
+  easyDualStackCluster = (import ../. { }).lib.easykubenix {
     inherit pkgs;
     modules = [
       (
@@ -941,7 +941,7 @@ let
 
   mkAssertCached =
     module:
-    (import ../. {
+    ((import ../. { }).lib.easykubenix {
       inherit pkgs;
       modules = [ module ];
     }).config.ekn.assertCached;
@@ -1070,7 +1070,7 @@ in
   # A Service the declared stack cannot serve must be refused at evaluation,
   # naming the Service -- not left for the API server to deny at admission.
   dualStackServiceOnSingleStackThrows =
-    (import ../. {
+    ((import ../. { }).lib.easykubenix {
       inherit pkgs;
       modules = [
         (
@@ -1084,7 +1084,7 @@ in
     }).config.kubernetes.generated;
 
   iPv6ServiceOnIPv4ClusterThrows =
-    (import ../. {
+    ((import ../. { }).lib.easykubenix {
       inherit pkgs;
       modules = [
         (
@@ -1108,7 +1108,7 @@ in
   # refused at evaluation, which is where the API server denies it at
   # admission ("provided IP is not in the valid range").
   pinnedIPv4InsideCidrRenders =
-    (import ../. {
+    ((import ../. { }).lib.easykubenix {
       inherit pkgs;
       modules = [
         (
@@ -1122,7 +1122,7 @@ in
     }).config.kubernetes.generated;
 
   pinnedIPv4OutsideCidrThrows =
-    (import ../. {
+    ((import ../. { }).lib.easykubenix {
       inherit pkgs;
       modules = [
         (
@@ -1139,7 +1139,7 @@ in
 
   # A headless Service pins nothing and is not checked.
   headlessServiceRenders =
-    (import ../. {
+    ((import ../. { }).lib.easykubenix {
       inherit pkgs;
       modules = [
         (
@@ -1158,7 +1158,7 @@ in
   # Declaring a family without its CIDR leaves the harness no range to serve
   # it from; the two options must agree.
   dualFamiliesWithoutIPv6CidrThrows =
-    (import ../. {
+    ((import ../. { }).lib.easykubenix {
       inherit pkgs;
       modules = [
         (
@@ -1177,7 +1177,7 @@ in
   # A duplicate family says nothing about the stack and would make every
   # consumer of the list guess.
   duplicateIPFamilyThrows =
-    (import ../. {
+    ((import ../. { }).lib.easykubenix {
       inherit pkgs;
       modules = [
         (
@@ -1197,7 +1197,7 @@ in
   manifestHashShapes =
     let
       rendered =
-        (import ../. {
+        ((import ../. { }).lib.easykubenix {
           inherit pkgs;
           modules = [
             (

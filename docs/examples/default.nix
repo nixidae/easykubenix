@@ -13,11 +13,11 @@
     inherit system;
     config.allowUnfree = true;
   },
-  # The easykubenix entry point itself, as the function `default.nix` returns.
-  # A default rather than a required argument, so this file stands on its own;
-  # `flake.nix` passes its own `lib.easykubenix` instead, so that the examples
-  # exercise exactly what the flake exports rather than a second import of it.
-  easykubenix ? import ../../default.nix,
+  # `lib.easykubenix`, the evaluation. A default rather than a required
+  # argument, so this file stands on its own; `flake.nix` passes its own
+  # `lib.easykubenix` instead, so that the examples exercise exactly what the
+  # flake exports rather than a second import of it.
+  easykubenix ? (import ../../default.nix { inherit sources system pkgs; }).lib.easykubenix,
 }:
 let
   inherit (pkgs) lib;

@@ -146,7 +146,7 @@ def test_a_failed_git_push_is_not_success(tmp_path: pathlib.Path) -> None:
           sources = import {_PROJECT_ROOT}/nix/sources.nix;
           pkgs = import sources.nixpkgs {{ }};
         in
-        import {_PROJECT_ROOT} {{
+        (import {_PROJECT_ROOT} {{ }}).lib.easykubenix {{
           inherit pkgs;
           modules = [
             {{

@@ -17,7 +17,7 @@
   sources,
 }:
 let
-  eval = import ../../default.nix {
+  eval = (import ../../default.nix { }).lib.easykubenix {
     inherit pkgs sources;
     modules = [ ./fixture.nix ];
   };

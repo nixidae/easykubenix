@@ -44,13 +44,14 @@ How to create an easykubenix instance (probably)
 ```nix
 { pkgs ? import <nixpkgs> {}}:
 let
-  easykubenix = import (
-    builtins.fetchTree {
-      type = "github";
-      owner = "lillecarl";
-      repo = "easykubenix";
-    }
-  );
+  easykubenix =
+    (import (
+      builtins.fetchTree {
+        type = "github";
+        owner = "lillecarl";
+        repo = "easykubenix";
+      }
+    ) { }).lib.easykubenix;
 in
 easykubenix {
   inherit pkgs;
@@ -66,7 +67,7 @@ To generate the final YAML manifests, import your modules into the provided
 ```nix
 # default.nix
 { pkgs ? import <nixpkgs> {} }:
-(import <easykubenix> {
+((import <easykubenix> { }).lib.easykubenix {
   inherit pkgs;
   modules = [ ./my-modules.nix ];
 }).eval

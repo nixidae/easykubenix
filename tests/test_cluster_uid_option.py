@@ -27,7 +27,7 @@ def _instance(tmp_path: pathlib.Path, ekn_lines: str) -> pathlib.Path:
           sources = import {PROJECT_ROOT}/nix/sources.nix;
           pkgs = import sources.nixpkgs {{ }};
         in
-        import {PROJECT_ROOT} {{
+        (import {PROJECT_ROOT} {{ }}).lib.easykubenix {{
           inherit pkgs;
           modules = [
             ({{ pkgs, ... }}: {{

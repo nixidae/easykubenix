@@ -420,7 +420,7 @@ class TestEknModule:
     def _object_check_probe(ekn_root: str, output: str) -> str:
         return f"""
         let
-          easy = import {ekn_root} {{
+          easy = (import {ekn_root} {{ }}).lib.easykubenix {{
             modules = [{{
               deployment.units.good.path = "good";
               deployment.units.bad.path = "bad";
@@ -464,7 +464,7 @@ class TestEknModule:
         # that validates its entries -- reaches the throw.
         nix = f"""
         let
-          easy = import {ekn_root} {{
+          easy = (import {ekn_root} {{ }}).lib.easykubenix {{
             modules = [({{ lib, ... }}: {{
               deployment.units.good.path = "good";
               deployment.units.bad.path = "bad";
@@ -493,7 +493,7 @@ class TestEknModule:
     async def test_generated_by_path(self, ekn_root: str) -> None:
         nix = f"""
         let
-          easy = import {ekn_root} {{
+          easy = (import {ekn_root} {{ }}).lib.easykubenix {{
             modules = [{{
               kubernetes.objects.default.ConfigMap.test = {{ data.key = "hello"; }};
             }}];
@@ -512,7 +512,7 @@ class TestEknModule:
     async def test_manifest_yaml_list(self, ekn_root: str) -> None:
         nix = f"""
         let
-          easy = import {ekn_root} {{
+          easy = (import {ekn_root} {{ }}).lib.easykubenix {{
             modules = [{{
               kubernetes.objects.default.ConfigMap.test = {{ data.key = "hello"; }};
             }}];
@@ -950,7 +950,7 @@ class TestTheInstanceFieldManager:
     def _probe(tmp_path: Path, body: str) -> Path:
         probe = tmp_path / "field-manager.nix"
         probe.write_text(f"""
-            import {PROJECT_ROOT} {{
+            (import {PROJECT_ROOT} {{ }}).lib.easykubenix {{
               modules = [{{
                 ekn.environment = "easykubenix";
                 deployment.deployBranch = "deploy";
@@ -1033,7 +1033,7 @@ class TestGitOpsTargetSubmoduleEndToEnd:
     def _probe(cls, tmp_path: Path) -> Path:
         probe = tmp_path / "bootstrap.nix"
         probe.write_text(f"""
-            import {PROJECT_ROOT} {{
+            (import {PROJECT_ROOT} {{ }}).lib.easykubenix {{
               modules = [{{
                 # No default for this -- see easykubenix/ekn.nix.
                 ekn.environment = "easykubenix";
@@ -1101,7 +1101,7 @@ class TestGitOpsTargetSubmoduleEndToEnd:
         """
         probe = tmp_path / "two-units.nix"
         probe.write_text(f"""
-            import {PROJECT_ROOT} {{
+            (import {PROJECT_ROOT} {{ }}).lib.easykubenix {{
               modules = [{{
                 ekn.environment = "easykubenix";
                 deployment.deployBranch = "deploy";
@@ -1151,7 +1151,7 @@ class TestGitOpsTargetSubmoduleEndToEnd:
         """
         probe = tmp_path / "routed-raw.nix"
         probe.write_text(f"""
-            import {PROJECT_ROOT} {{
+            (import {PROJECT_ROOT} {{ }}).lib.easykubenix {{
               modules = [{{
                 ekn.environment = "easykubenix";
                 deployment.deployBranch = "deploy";
@@ -1175,7 +1175,7 @@ class TestGitOpsTargetSubmoduleEndToEnd:
         # no unit label" -- so adding one here would orphan it instead.
         probe = tmp_path / "plain-raw.nix"
         probe.write_text(f"""
-            import {PROJECT_ROOT} {{
+            (import {PROJECT_ROOT} {{ }}).lib.easykubenix {{
               modules = [{{
                 ekn.environment = "easykubenix";
                 kubernetes.rawFiles = [{{ path = {self._raw_file(tmp_path)}; }}];
@@ -1192,7 +1192,7 @@ class TestGitOpsTargetSubmoduleEndToEnd:
     def _dependency_probe(tmp_path: Path) -> Path:
         probe = tmp_path / "dependencies.nix"
         probe.write_text(f"""
-            import {PROJECT_ROOT} {{
+            (import {PROJECT_ROOT} {{ }}).lib.easykubenix {{
               modules = [{{
                 ekn.environment = "easykubenix";
                 deployment.deployBranch = "deploy";
@@ -1274,7 +1274,7 @@ class TestGitOpsTargetSubmoduleEndToEnd:
         # belongs to no target and so has nobody to name a manager.
         probe = tmp_path / "plain.nix"
         probe.write_text(f"""
-            import {PROJECT_ROOT} {{
+            (import {PROJECT_ROOT} {{ }}).lib.easykubenix {{
               modules = [{{
                 # A kubeapply config carries the prune scope, so it has to
                 # name one -- this test is about the field manager.
@@ -1301,7 +1301,7 @@ class TestAssertionsAndWarnings:
     def _probe(tmp_path: Path, module_body: str) -> Path:
         probe = tmp_path / "probe.nix"
         probe.write_text(f"""
-            (import {PROJECT_ROOT} {{
+            ((import {PROJECT_ROOT} {{ }}).lib.easykubenix {{
               modules = [{{
                 {module_body}
                 kubernetes.objects.default.ConfigMap.test.data.key = "hello";
@@ -1351,7 +1351,7 @@ class TestAssertionsAndWarnings:
         """
         probe = tmp_path / "nested.nix"
         probe.write_text(f"""
-            (import {PROJECT_ROOT} {{
+            ((import {PROJECT_ROOT} {{ }}).lib.easykubenix {{
               modules = [{{
                 deployment.deployBranch = "deploy";
                 deployment.units.bootstrap.modules = [{{
@@ -1482,7 +1482,7 @@ class TestModuleSystemShape:
     async def test_the_names_a_generic_tool_looks_for(self, ekn_root: str) -> None:
         nix = f"""
         let
-          easy = import {ekn_root} {{ modules = [{{ }}]; }};
+          easy = (import {ekn_root} {{ }}).lib.easykubenix {{ modules = [{{ }}]; }};
         in
         {{
           top = builtins.attrNames easy;
@@ -1501,7 +1501,7 @@ class TestModuleSystemShape:
         """`options` has to be this evaluation's, not some other one's."""
         nix = f"""
         let
-          easy = import {ekn_root} {{
+          easy = (import {ekn_root} {{ }}).lib.easykubenix {{
             modules = [{{ kubernetes.resources.default.ConfigMap.demo.data.hello = "world"; }}];
           }};
         in

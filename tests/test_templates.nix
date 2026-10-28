@@ -1,7 +1,7 @@
 let
   sources = import ../nix/sources.nix;
   pkgs = import sources.nixpkgs { };
-  easy = import ../. {
+  easy = (import ../. { }).lib.easykubenix {
     inherit pkgs;
     modules = [
       (

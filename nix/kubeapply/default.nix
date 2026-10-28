@@ -41,7 +41,7 @@ let
   # gets, and `ekn` comes out of the same `ekn/`.
   evals = lib.mapAttrs (
     _name: module:
-    import ../../default.nix {
+    (import ../../default.nix { }).lib.easykubenix {
       inherit pkgs sources;
       modules = [ module ];
     }

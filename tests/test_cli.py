@@ -514,7 +514,7 @@ class TestCachePushTimeout:
               sources = import {sources_path};
               pkgs = import sources.nixpkgs {{ }};
             in
-            import {PROJECT_ROOT} {{
+            (import {PROJECT_ROOT} {{ }}).lib.easykubenix {{
               inherit pkgs;
               modules = [
                 {{
@@ -547,7 +547,7 @@ class TestCachePushTimeout:
               sources = import {sources_path};
               pkgs = import sources.nixpkgs {{ }};
             in
-            import {PROJECT_ROOT} {{
+            (import {PROJECT_ROOT} {{ }}).lib.easykubenix {{
               inherit pkgs;
               modules = [
                 {{
@@ -581,7 +581,7 @@ class TestCachePushTimeout:
               sources = import {sources_path};
               pkgs = import sources.nixpkgs {{ }};
             in
-            import {PROJECT_ROOT} {{
+            (import {PROJECT_ROOT} {{ }}).lib.easykubenix {{
               inherit pkgs;
               modules = [
                 {{
@@ -610,7 +610,7 @@ class TestCachePushTimeout:
               sources = import {sources_path};
               pkgs = import sources.nixpkgs {{ }};
             in
-            import {PROJECT_ROOT} {{
+            (import {PROJECT_ROOT} {{ }}).lib.easykubenix {{
               inherit pkgs;
               modules = [
                 {{
@@ -636,7 +636,7 @@ class TestCachePushTimeout:
               sources = import {sources_path};
               pkgs = import sources.nixpkgs {{ }};
             in
-            import {PROJECT_ROOT} {{
+            (import {PROJECT_ROOT} {{ }}).lib.easykubenix {{
               inherit pkgs;
               modules = [
                 {{

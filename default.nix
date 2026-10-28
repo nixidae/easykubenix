@@ -8,11 +8,6 @@
     config.allowUnfree = true;
   },
   nixLane ? "stable",
-  # The shape before nixidae/nixidae#1103: a call with `modules` returns the
-  # evaluation, as `lib.easykubenix` does.
-  modules ? null,
-  specialArgs ? { },
-  debug ? null,
 }:
 let
   easykubenix =
@@ -31,31 +26,25 @@ let
   demo = easykubenix { };
   outputs = import ./nix { inherit sources system pkgs; };
 in
-if modules != null then
-  easykubenix { inherit modules specialArgs debug; }
-else
-  {
-    packages = {
-      inherit (demo.passthru) ekn;
-      default = demo.passthru.ekn;
-    };
-    lib = { inherit easykubenix; };
-    nixosModules = { };
-    easykubenixModules = { };
-    inherit (outputs) checks shell;
-    docs.default = demo.passthru.easykubenix-docs;
-    ciTestWorkflows.tests = import ./ci/workflows/tests.nix;
+{
+  packages = {
+    inherit (demo.passthru) ekn;
+    default = demo.passthru.ekn;
+  };
+  lib = { inherit easykubenix; };
+  nixosModules = { };
+  easykubenixModules = { };
+  inherit (outputs) checks shell;
+  docs.default = demo.passthru.easykubenix-docs;
+  ciTestWorkflows.tests = import ./ci/workflows/tests.nix;
 
-    # Not public: the names may change without notice.
-    internal = outputs // {
-      inherit (demo.passthru)
-        lanes
-        eknDevEnv
-        nixvenv
-        huggorm-bindings
-        ;
-    };
-
-    # nix/members.nix, the root, flake.nix and nix/default.nix read it.
-    inherit (demo) passthru;
-  }
+  # Not public: the names may change without notice.
+  internal = outputs // {
+    inherit (demo.passthru)
+      lanes
+      eknDevEnv
+      nixvenv
+      huggorm-bindings
+      ;
+  };
+}
