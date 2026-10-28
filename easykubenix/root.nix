@@ -87,6 +87,7 @@ let
     });
 
   ofClass = class: lib.filterAttrs (_: unit: unit.${class} != null) cfg.units;
+  dependencyClosure = import ./lib/dependencyClosure.nix { inherit lib; } "units";
 in
 {
   _class = "root";
@@ -127,7 +128,10 @@ in
               dependencies = mkOption {
                 type = types.listOf types.str;
                 default = [ ];
-                description = "Tofu units `ekn tofu` applies before this one.";
+                description = ''
+                  Tofu units `ekn tofu` applies before this one, and before
+                  theirs. Each must be a tofu unit.
+                '';
               };
             };
           }
@@ -170,17 +174,27 @@ in
   config = {
     _module.args.nixosGenerator = nixosGenerator;
 
-    assertions = lib.mapAttrsToList (name: unit: {
-      assertion =
-        lib.length (
-          lib.filter (v: v != null) [
-            unit.kubernetes
-            unit.tofu
-            unit.nixos
-          ]
-        ) == 1;
-      message = "units.${name}: set exactly one of kubernetes, tofu and nixos.";
-    }) cfg.units;
+    assertions =
+      lib.mapAttrsToList (name: unit: {
+        assertion =
+          lib.length (
+            lib.filter (v: v != null) [
+              unit.kubernetes
+              unit.tofu
+              unit.nixos
+            ]
+          ) == 1;
+        message = "units.${name}: set exactly one of kubernetes, tofu and nixos.";
+      }) cfg.units
+      ++ lib.concatLists (
+        lib.mapAttrsToList (
+          name: unit:
+          map (dependency: {
+            assertion = (cfg.units.${dependency}.tofu or null) != null;
+            message = "units.${name}.dependencies: ${dependency} is not a tofu unit; `ekn tofu` applies only tofu units.";
+          }) unit.dependencies
+        ) cfg.units
+      );
 
     deployment.tofuUnits = lib.mapAttrs (
       name: unit:
@@ -190,7 +204,8 @@ in
       {
         inherit name;
         target = { inherit (unit) path; };
-        inherit (unit) dependencies;
+        # Transitive, deepest first: `ekn tofu` applies them in this order.
+        dependencies = dependencyClosure cfg.units name;
         configFile = checked "${tofu.configFile}";
         jsonSchema = "${tofu.jsonSchema}";
         tofu = "${tofu.wrappedPackage}/bin/tofu";

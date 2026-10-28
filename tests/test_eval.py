@@ -560,6 +560,14 @@ class TestRoot:
         ):
             await evaluate_file(NIX_TEST_FILE, "rootClassGuardThrows")
 
+    async def test_tofu_dependencies_are_transitive_deepest_first(self) -> None:
+        # `ekn tofu` applies them in this order, one after another.
+        assert await evaluate_file(NIX_TEST_FILE, "rootTofuChain") == ["base", "middle"]
+
+    async def test_a_tofu_unit_depends_on_tofu_units_only(self) -> None:
+        with pytest.raises(NixError, match=r"units\.day2\.dependencies: cluster is not a tofu unit"):
+            await evaluate_file(NIX_TEST_FILE, "rootTofuOnClusterThrows")
+
     async def test_ekn_takes_a_roots_one_cluster(self) -> None:
         # `ekn kubeapply --attr <root>` keeps working: the root's one
         # Kubernetes unit is the cluster.

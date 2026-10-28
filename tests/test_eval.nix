@@ -1074,6 +1074,24 @@ in
       };
     };
   rootConfig = rootEnv [ ];
+  rootTofuChain =
+    (rootEnv [
+      {
+        units = {
+          base.tofu.tofu.resource.null_resource.base = { };
+          middle = {
+            tofu.tofu.resource.null_resource.middle = { };
+            dependencies = [ "base" ];
+          };
+          top = {
+            tofu.tofu.resource.null_resource.top = { };
+            dependencies = [ "middle" ];
+          };
+        };
+      }
+    ]).deployment.tofuUnits.top.dependencies;
+  rootTofuOnClusterThrows =
+    (rootEnv [ { units.day2.dependencies = [ "cluster" ]; } ]).deployment.tofuUnits.day2.configFile;
   rootTwoClusters = rootEnv [ { units.other.kubernetes.ekn.environment = "other"; } ];
   rootTwoClassesThrows =
     (rootEnv [ { units.day2.nixos = (rootEnv [ ]).units.cp1.nixos; } ])
