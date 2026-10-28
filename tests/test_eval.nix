@@ -879,6 +879,55 @@ let
     ];
   };
 
+  # An environment root: a fact, a tofu unit, a cluster that names the tofu
+  # unit's store path, a NixOS generator and a host built from it.
+  # `extra` adds modules, for the cases that must fail.
+  rootEnv =
+    extra:
+    (import ../. {
+      inherit pkgs;
+      class = "root";
+      modules = [
+        (
+          { config, nixosGenerator, ... }:
+          {
+            options.facts.issuer = pkgs.lib.mkOption { type = pkgs.lib.types.str; };
+            config = {
+              facts.issuer = "https://keycloak.example.invalid/realms/platform";
+              generators.fleet = nixosGenerator {
+                modules = [
+                  (
+                    { root, node, ... }:
+                    {
+                      boot.isContainer = true;
+                      system.stateVersion = "26.05";
+                      networking.hostName = node.name;
+                      environment.etc.issuer.text = root.facts.issuer;
+                    }
+                  )
+                ];
+              };
+              units = {
+                day2.tofu.tofu.resource.keycloak_realm.platform.realm = "platform";
+                cluster.kubernetes =
+                  { root, ... }:
+                  {
+                    ekn.environment = "easykubenix";
+                    kubernetes.objects.tofu-operator.ConfigMap.day2.data.configFile =
+                      "${root.units.day2.tofu.tofu.configFile}";
+                  };
+                cp1.nixos = config.generators.fleet {
+                  name = "cp1";
+                  labels.role = "control-plane";
+                };
+              };
+            };
+          }
+        )
+      ]
+      ++ extra;
+    }).config;
+
   # `ekn.lib.tf.unitsAnnotation` names the `tf` units an object ships. A name
   # that is not one is refused at evaluation, where `ekn kubeapply` would
   # otherwise skip it in silence.
@@ -1001,6 +1050,48 @@ in
   tofuUnitsAnnotationRenders = tofuUnitsAnnotated "infra";
   tofuUnitsAnnotationUnknownThrows = tofuUnitsAnnotated "infra,nope";
   tofuUnitsAnnotationKubernetesUnitThrows = tofuUnitsAnnotated "apps";
+  rootRenders =
+    let
+      root = rootEnv [ ];
+    in
+    {
+      configMapNamesTofuConfig =
+        (pkgs.lib.head root.units.cluster.kubernetes.kubernetes.generated).data.configFile
+        == root.deployment.tofuUnits.day2.configFile;
+      tofuUnit = removeAttrs root.deployment.tofuUnits.day2 [
+        "configFile"
+        "jsonSchema"
+        "tofu"
+      ];
+      host = {
+        inherit (root.units.cp1.nixos.config.networking) hostName;
+        issuer = root.units.cp1.nixos.config.environment.etc.issuer.text;
+        toplevelIsStorePath = pkgs.lib.hasPrefix builtins.storeDir root.deployment.nixosUnits.cp1.toplevel;
+      };
+    };
+  rootTwoClassesThrows =
+    (rootEnv [ { units.day2.nixos = (rootEnv [ ]).units.cp1.nixos; } ])
+    .deployment.tofuUnits.day2.configFile;
+  rootClassGuardThrows =
+    (rootEnv [
+      {
+        units.day2.tofu = {
+          _class = "nixos";
+          boot.isContainer = true;
+        };
+      }
+    ]).units.day2.tofu.tofu.generated;
+  rootTofuUnitChecksRootThrows =
+    (rootEnv [
+      {
+        assertions = [
+          {
+            assertion = false;
+            message = "the root's own check";
+          }
+        ];
+      }
+    ]).deployment.tofuUnits.day2.configFile;
   # `ekn tofu` reads a unit through `deployment.tofuUnits`; the declaring
   # instance's assertions have to fail there too.
   tofuUnitParentAssertionThrows =

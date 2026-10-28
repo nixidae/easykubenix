@@ -534,6 +534,35 @@ class TestEknModule:
         assert "hello" in result
 
 
+class TestRoot:
+    """An environment root: facts, units of each class, generators."""
+
+    async def test_units_share_one_fixpoint(self) -> None:
+        result = await evaluate_file(NIX_TEST_FILE, "rootRenders")
+        assert result == {
+            # The tofu-operator case: a cluster names a tofu unit's store path.
+            "configMapNamesTofuConfig": True,
+            "tofuUnit": {"name": "day2", "target": {"path": "day2"}, "dependencies": []},
+            "host": {
+                "hostName": "cp1",
+                "issuer": "https://keycloak.example.invalid/realms/platform",
+                "toplevelIsStorePath": True,
+            },
+        }
+
+    async def test_a_unit_has_exactly_one_class(self) -> None:
+        with pytest.raises(NixError, match=r"units\.day2: set exactly one of kubernetes, tofu and nixos"):
+            await evaluate_file(NIX_TEST_FILE, "rootTwoClassesThrows")
+
+    async def test_a_unit_keeps_its_class_guard(self) -> None:
+        with pytest.raises(NixError, match=r'class: "nixos"\) cannot be imported into a module evaluation that expects class "tf"'):
+            await evaluate_file(NIX_TEST_FILE, "rootClassGuardThrows")
+
+    async def test_a_tofu_unit_runs_the_roots_assertions(self) -> None:
+        with pytest.raises(NixError, match=r"the root's own check"):
+            await evaluate_file(NIX_TEST_FILE, "rootTofuUnitChecksRootThrows")
+
+
 class TestImportTimeTransformers:
     """The set-level seam on the chart and importyaml paths.
 
