@@ -231,7 +231,8 @@ in
     }) (ofClass "nixos");
 
     deployment.toplevels = lib.mapAttrs (
-      _: generator: node: checked (generator node).config.system.build.toplevel
+      _: generator: node:
+      checked (generator node).config.system.build.toplevel
     ) cfg.generators;
   };
 }
