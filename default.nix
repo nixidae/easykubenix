@@ -55,7 +55,11 @@ in
     inherit (demo.passthru) ekn;
     default = demo.passthru.ekn;
   };
-  lib = { inherit easykubenix; };
+  lib = {
+    inherit easykubenix;
+    # `ekn.lib.packageRef`, with `enabled` chosen by the caller.
+    packageRef = import ./easykubenix/lib/packageRef.nix;
+  };
   nixosModules = { };
   easykubenixModules = { };
   inherit (outputs) checks shell;
