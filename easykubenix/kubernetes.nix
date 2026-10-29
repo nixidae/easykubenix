@@ -752,6 +752,7 @@ in
                           apiVersion = lib.mkOption {
                             type = lib.types.str;
                             default = cfg.apiMappings.${kind} or (throw "No apiMapping for ${kind}");
+                            defaultText = lib.literalMD "the `kubernetes.apiMappings` entry of the object's kind";
                           };
                           kind = lib.mkOption {
                             type = lib.types.str;
