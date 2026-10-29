@@ -144,8 +144,9 @@ in
       default = { };
       description = ''
         Functions something else calls, never applied by ekn. A NixOS
-        generator is what a NixOSRollout names; build one with the
-        `nixosGenerator` module argument.
+        generator returns a node's evaluation, for `units.<name>.nixos`;
+        build one with the `nixosGenerator` module argument. A NixOSRollout
+        names its toplevel, `deployment.toplevels.<name>`.
       '';
     };
 
@@ -167,6 +168,15 @@ in
         type = types.anything;
         readOnly = true;
         description = "The NixOS units: each one's toplevel, behind this root's assertions.";
+      };
+      toplevels = mkOption {
+        type = types.attrsOf function;
+        readOnly = true;
+        description = ''
+          Per NixOS generator, `{ name, labels, system }: <toplevel>`, behind
+          this root's assertions. A NixOSRollout's `source.attribute` names
+          one: nixkube builds what it returns and knows nothing of NixOS.
+        '';
       };
     };
   };
@@ -219,5 +229,9 @@ in
       inherit (unit.nixos.config.nixpkgs.hostPlatform) system;
       toplevel = checked "${unit.nixos.config.system.build.toplevel}";
     }) (ofClass "nixos");
+
+    deployment.toplevels = lib.mapAttrs (
+      _: generator: node: checked (generator node).config.system.build.toplevel
+    ) cfg.generators;
   };
 }
