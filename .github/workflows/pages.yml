@@ -36,7 +36,7 @@ jobs:
       # `--file .`, not `.#easykubenix-docs`: a flake must never be the only
       # way to build something here.
       - name: Build documentation
-        run: nix build --file . passthru.easykubenix-docs --out-link result --print-build-logs --print-out-paths
+        run: nix build --file . docs.default --out-link result --print-build-logs --print-out-paths
 
       - name: Verify docs closure
         run: nix store verify --recursive --no-trust "$(readlink -f result)"
