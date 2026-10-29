@@ -18,60 +18,22 @@ validation.
 Define your resources using the NixOS module system. The top-level attribute
 is `kubernetes`, followed by the resource `kind`, then the resource name.
 
-### Try the demo
-Evaluate the demo YAML and apply it to an ephemeral apiserver
-```bash
-nix run --file . validationScript
-```
-Check the generated YAML
-```bash
-cat $(nix build --print-out-paths --file . manifestYAMLFile)
-```
-
-### Modules API
 ```nix
 {
-  kubernetes.namespace.ConfigMap.my-awesome-configmap = {
+  kubernetes.objects.default.ConfigMap.my-awesome-configmap = {
     stringData."config.json" = builtins.toJSON { key = "value"; };
   };
 
-  kubernetes.namespace.Deployment.my-app = {
+  kubernetes.objects.default.Deployment.my-app = {
     spec.replicas = 3;
   };
 }
 ```
-How to create an easykubenix instance (probably)
-```nix
-{ pkgs ? import <nixpkgs> {}}:
-let
-  easykubenix =
-    (import (
-      builtins.fetchTree {
-        type = "github";
-        owner = "lillecarl";
-        repo = "easykubenix";
-      }
-    ) { }).lib.easykubenix;
-in
-easykubenix {
-  inherit pkgs;
-  modules = [
-    ./my-modules.nix
-  ];
-}
-```
 
-To generate the final YAML manifests, import your modules into the provided
-`eval` function.
-
-```nix
-# default.nix
-{ pkgs ? import <nixpkgs> {} }:
-((import <easykubenix> { }).lib.easykubenix {
-  inherit pkgs;
-  modules = [ ./my-modules.nix ];
-}).eval
-```
+`lib.easykubenix` evaluates such modules, and `packages.ekn` renders,
+checks and applies the result. The
+[getting-started page](https://nixidae.github.io/easykubenix/getting-started.html)
+shows each step.
 
 #### Quirks:
 The namespace "none" in ```kubernetes.resources.none.kind.name``` is reserved
@@ -83,10 +45,10 @@ you must set metadata.namespace yourself.
 ### Manifest Validation
 
 To validate your manifests against a real Kubernetes API server without
-affecting a live cluster, run the validation script.
+affecting a live cluster, run `ekn validate`.
 
 ```bash
-nix run --file . validationScript
+ekn --file deployment.nix validate
 ```
 
 This command builds your manifests, spins up a temporary API server, and
