@@ -884,7 +884,7 @@ let
   # `extra` adds modules, for the cases that must fail.
   rootEnv =
     extra:
-    (import ../. {
+    ((import ../. { }).lib.easykubenix {
       inherit pkgs;
       class = "root";
       modules = [
@@ -1119,7 +1119,7 @@ in
   # `ekn tofu` reads a unit through `deployment.tofuUnits`; the declaring
   # instance's assertions have to fail there too.
   tofuUnitParentAssertionThrows =
-    (import ../. {
+    ((import ../. { }).lib.easykubenix {
       inherit pkgs;
       modules = [
         {

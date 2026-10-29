@@ -575,7 +575,13 @@ class TestRoot:
             Instance(NIX_TEST_FILE, attr_path="rootConfig"), with_spec=False
         )
         assert isinstance(generated, list)
-        assert [o["metadata"]["name"] for o in generated] == ["day2"]
+        names = []
+        for obj in generated:
+            assert isinstance(obj, dict)
+            metadata = obj["metadata"]
+            assert isinstance(metadata, dict)
+            names.append(metadata["name"])
+        assert names == ["day2"]
 
     async def test_ekn_refuses_to_guess_between_clusters(self) -> None:
         with pytest.raises(ValueError, match=r"cluster, other.*name one with --attr"):
