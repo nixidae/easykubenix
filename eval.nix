@@ -12,6 +12,9 @@
   nixLane ? "stable",
   modules ? [ ./demo ],
   specialArgs ? { },
+  # `root` evaluates an environment: facts, and units of any class (see
+  # easykubenix/root.nix). `kubernetes` evaluates one cluster at the root.
+  class ? "kubernetes",
   debug ? null, # unused but kept for API compatibility
 }:
 let
@@ -185,6 +188,9 @@ let
     ];
     tf = commonModules ++ [
       ./easykubenix/tofu.nix
+    ];
+    root = commonModules ++ [
+      ./easykubenix/root.nix
     ];
   };
 
@@ -397,7 +403,7 @@ let
     };
   };
 
-  eval = mkInstance { inherit modules specialArgs; };
+  eval = mkInstance { inherit modules specialArgs class; };
 in
 {
   # From `internal.exportable`, not `internal` itself: these are files a

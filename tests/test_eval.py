@@ -378,6 +378,12 @@ class TestEknModule:
         with pytest.raises(NixError, match=rf"default/ConfigMap/runner -> {named}\n"):
             await evaluate_file(NIX_TEST_FILE, attr)
 
+    async def test_a_tf_unit_runs_its_parents_assertions(self) -> None:
+        # `ekn tofu` evaluates `deployment.tofuUnits.<name>`, not
+        # `kubernetes.generated`, so nothing else on its path would run them.
+        with pytest.raises(NixError, match=r"the parent's own check"):
+            await evaluate_file(NIX_TEST_FILE, "tofuUnitParentAssertionThrows")
+
     async def test_the_seed_annotations_name_each_variable(self) -> None:
         # The annotations are what every consumer reads, so they are the
         # contract: one numbered key per variable, greppable against a live
@@ -526,6 +532,58 @@ class TestEknModule:
         assert isinstance(result, str)
         assert "ConfigMap" in result
         assert "hello" in result
+
+
+class TestRoot:
+    """An environment root: facts, units of each class, generators."""
+
+    async def test_units_share_one_fixpoint(self) -> None:
+        result = await evaluate_file(NIX_TEST_FILE, "rootRenders")
+        assert result == {
+            # The tofu-operator case: a cluster names a tofu unit's store path.
+            "configMapNamesTofuConfig": True,
+            "tofuUnit": {"name": "day2", "target": {"path": "day2"}, "dependencies": []},
+            "host": {
+                "hostName": "cp1",
+                "issuer": "https://keycloak.example.invalid/realms/platform",
+                "toplevelIsStorePath": True,
+            },
+        }
+
+    async def test_a_unit_has_exactly_one_class(self) -> None:
+        with pytest.raises(NixError, match=r"units\.day2: set exactly one of kubernetes, tofu and nixos"):
+            await evaluate_file(NIX_TEST_FILE, "rootTwoClassesThrows")
+
+    async def test_a_unit_keeps_its_class_guard(self) -> None:
+        with pytest.raises(
+            NixError, match=r'class: "nixos"\) cannot be imported into a module evaluation that expects class "tf"'
+        ):
+            await evaluate_file(NIX_TEST_FILE, "rootClassGuardThrows")
+
+    async def test_tofu_dependencies_are_transitive_deepest_first(self) -> None:
+        # `ekn tofu` applies them in this order, one after another.
+        assert await evaluate_file(NIX_TEST_FILE, "rootTofuChain") == ["base", "middle"]
+
+    async def test_a_tofu_unit_depends_on_tofu_units_only(self) -> None:
+        with pytest.raises(NixError, match=r"units\.day2\.dependencies: cluster is not a tofu unit"):
+            await evaluate_file(NIX_TEST_FILE, "rootTofuOnClusterThrows")
+
+    async def test_ekn_takes_a_roots_one_cluster(self) -> None:
+        # `ekn kubeapply --attr <root>` keeps working: the root's one
+        # Kubernetes unit is the cluster.
+        generated, _ = await evaluate_generated_with_spec(
+            Instance(NIX_TEST_FILE, attr_path="rootConfig"), with_spec=False
+        )
+        assert isinstance(generated, list)
+        assert [o["metadata"]["name"] for o in generated] == ["day2"]
+
+    async def test_ekn_refuses_to_guess_between_clusters(self) -> None:
+        with pytest.raises(ValueError, match=r"cluster, other.*name one with --attr"):
+            await evaluate_generated_with_spec(Instance(NIX_TEST_FILE, attr_path="rootTwoClusters"), with_spec=False)
+
+    async def test_a_tofu_unit_runs_the_roots_assertions(self) -> None:
+        with pytest.raises(NixError, match=r"the root's own check"):
+            await evaluate_file(NIX_TEST_FILE, "rootTofuUnitChecksRootThrows")
 
 
 class TestImportTimeTransformers:

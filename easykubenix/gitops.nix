@@ -22,31 +22,7 @@ let
   # Lives here rather than inside `kubernetes.nix`'s `deploymentUnits`, where
   # it used to: `deployment.tofuUnits` needs the same closure over the same
   # option, and a `tf` unit never reaches that let-block.
-  dependencyClosure =
-    units: name:
-    let
-      walk =
-        path: current:
-        if lib.elem current path then
-          throw ''
-            `deployment.units' has a dependency cycle:
-
-              ${lib.concatStringsSep " -> " (path ++ [ current ])}
-
-            A unit cannot depend on itself, directly or through another unit.
-          ''
-        else
-          let
-            declared =
-              units.${current} or (throw ''
-                `deployment.units.${lib.last path}.dependencies' names unknown unit "${current}".
-
-                Declared units: ${lib.concatStringsSep ", " (lib.attrNames units)}
-              '');
-          in
-          lib.concatMap (walk (path ++ [ current ])) declared.dependencies ++ [ current ];
-    in
-    lib.unique (lib.concatMap (walk [ name ]) (units.${name}.dependencies or [ ]));
+  dependencyClosure = import ./lib/dependencyClosure.nix { inherit lib; } "deployment.units";
 in
 {
   _class = "kubernetes";

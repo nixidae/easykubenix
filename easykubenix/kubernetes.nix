@@ -3,6 +3,7 @@
   pkgs,
   lib,
   ekn,
+  root,
   ...
 }:
 let
@@ -432,6 +433,13 @@ let
   # is not a `tf` unit here would be skipped there without a word, so it is
   # refused here instead. Same `cfg.objects` walk as above, for the same
   # reason.
+  # This instance's own `tf` units and, inside an environment root, the
+  # root's: a cluster's tofu-operator ships the root's units.
+  tofuUnitNames =
+    lib.attrNames (lib.filterAttrs (_: unit: unit.class == "tf") config.deployment.units)
+    ++ lib.optionals (root != null) (
+      lib.attrNames (lib.filterAttrs (_: unit: unit.tofu != null) root.units)
+    );
   unknownTofuUnits = lib.concatLists (
     lib.mapAttrsToList (
       namespace: kinds:
@@ -446,7 +454,7 @@ let
                 named = if lib.isString value then lib.filter (n: n != "") (lib.splitString "," value) else [ ];
               in
               map (unit: "${namespace}/${kind}/${name} -> ${unit}") (
-                lib.filter (unit: (config.deployment.units.${unit}.class or null) != "tf") named
+                lib.filter (unit: !(builtins.elem unit tofuUnitNames)) named
               )
             ) objects
           )
