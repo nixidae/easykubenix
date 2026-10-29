@@ -26,13 +26,12 @@
   sources,
 }:
 let
-  # `+ "/lib.nix"` and not string interpolation. Interpolating the source
-  # would copy the whole checkout -- `.jj` included -- into the store.
-  vivarium = import (sources.vivarium + "/lib.nix") { inherit pkgs sources; };
+  vivariumSet = import sources.vivarium { inherit pkgs sources; };
+  vivarium = vivariumSet.lib;
 
-  # For `workloadImage`, which is the tag modules/k8s.nix imports into
+  # For `workloadImage`, which is the tag the k8s module imports into
   # containerd at boot. A pod may only use it with `imagePullPolicy: Never`.
-  images = pkgs.callPackage (sources.vivarium + "/modules/k8s-images.nix") { };
+  images = vivarium.k8sImages;
 
   manifests = import ./manifests.nix { inherit (images) workloadImage; };
 
@@ -72,7 +71,7 @@ let
   # More memory than the three-node test's control plane: this one also runs
   # the workload, and `ekn` itself.
   node = {
-    imports = [ (sources.vivarium + "/modules/k8s.nix") ];
+    imports = [ vivariumSet.nixosModules.k8s ];
     services.vivarium-k8s = {
       enable = true;
       role = "control-plane";
