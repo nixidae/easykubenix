@@ -48,56 +48,32 @@ let
   # a project root is what gets ekn's own dependencies resolved alongside
   # nanopynix' -- `overrideScope` here fails with `attribute 'kr8s' missing`.
   #
-  # kappy, the apply engine `ekn` imports, joins the set the same way. Its
-  # root is the `kappy/` project directory of the source, because the set
-  # leaves out of the nixpkgs lookup every root whose directory name is a
-  # declared dependency, and the source itself is named `source`.
-  #
-  # Only that directory is copied. kappy's `flake.lock` names a nixidae commit
-  # and moves with every lock commit, so a copy of the whole source would give
-  # `ekn` a different derivation here than in this repository's own flake,
-  # which reads nixidae at the commit that lock names.
-  kappyRoot =
-    let
-      root = toString sources.kappy;
-    in
-    builtins.path {
-      path = sources.kappy;
-      name = "source";
-      filter =
-        path: _type: path == root || path == "${root}/kappy" || lib.hasPrefix "${root}/kappy/" path;
-    }
-    + "/kappy";
+  # kappy, the apply engine `ekn` imports, joins the set the same way, through
+  # its `lib`.
+  kappy = (import sources.kappy { inherit pkgs sources system; }).lib;
   eknFor = lane: rec {
     pythonSet = lane.pythonSetWith {
       projectRoots = [
         ./ekn
-        kappyRoot
+        kappy.projectRoot
       ];
-      overlay = pySelf: _pyPrev: {
-        kappy = pySelf.callPackage (ps.mkProject {
-          projectRoot = kappyRoot;
-          inherit (lane.pythonSet) python;
-          extra = rendered: {
-            meta = rendered.meta // {
-              platforms = lib.platforms.unix;
+      overlay = lib.composeExtensions kappy.overlay (
+        pySelf: _pyPrev: {
+          ekn = pySelf.callPackage (ps.mkProject {
+            projectRoot = ./ekn;
+            inherit (lane.pythonSet) python;
+            # No `+nix<version>` local version segment, unlike nanopynix' own
+            # projects. Each lane's `ekn` is a separate application, and no
+            # environment installs two of them, so the segment would tell apart
+            # nothing.
+            extra = rendered: {
+              meta = rendered.meta // {
+                platforms = lib.platforms.unix;
+              };
             };
-          };
-        }) { };
-        ekn = pySelf.callPackage (ps.mkProject {
-          projectRoot = ./ekn;
-          inherit (lane.pythonSet) python;
-          # No `+nix<version>` local version segment, unlike nanopynix' own
-          # projects. Each lane's `ekn` is a separate application, and no
-          # environment installs two of them, so the segment would tell apart
-          # nothing.
-          extra = rendered: {
-            meta = rendered.meta // {
-              platforms = lib.platforms.unix;
-            };
-          };
-        }) { };
-      };
+          }) { };
+        }
+      );
     };
 
     # `caBundle` is not optional. `internal.nix` and `lib/parseYamlStream.nix`
