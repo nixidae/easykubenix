@@ -5,6 +5,7 @@
 :caption: Contents
 
 examples
+options
 schema-check
 package-references
 ```

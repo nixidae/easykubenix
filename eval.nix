@@ -31,7 +31,6 @@ let
   inherit ((import sources.adios)) adios;
   template = definition: adios definition { };
   inherit ((import sources.nixvenv { inherit pkgs sources; }).lib) nixvenv ps;
-  easykubenix-docs = pkgs.python3Packages.callPackage ./nix/docs.nix { inherit nixvenv; };
 
   # The `ekn` CLI, built from this repository's own `ekn/` source, which is
   # the only copy of it. `ekn` reads a fixed Nix-to-JSON schema that the
@@ -491,7 +490,6 @@ in
       lib
       adios
       eval
-      easykubenix-docs
       ;
     # This repository's own build of the CLI, from `ekn/`. nanopynix builds no
     # `ekn` at all any more -- see `eknPythonSet` above.
