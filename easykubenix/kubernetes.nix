@@ -697,14 +697,23 @@ in
                                   type = lib.types.listOf (
                                     lib.types.submodule {
                                       options = {
-                                        apiVersion = lib.mkOption { type = lib.types.str; };
-                                        kind = lib.mkOption { type = lib.types.str; };
+                                        apiVersion = lib.mkOption {
+                                          type = lib.types.str;
+                                          description = "The apiVersion of the object to wait for.";
+                                        };
+                                        kind = lib.mkOption {
+                                          type = lib.types.str;
+                                          description = "The kind of the object to wait for.";
+                                        };
                                         namespace = lib.mkOption {
                                           type = lib.types.nullOr lib.types.str;
                                           default = null;
                                           description = "Null for a cluster-scoped object.";
                                         };
-                                        name = lib.mkOption { type = lib.types.str; };
+                                        name = lib.mkOption {
+                                          type = lib.types.str;
+                                          description = "The name of the object to wait for.";
+                                        };
                                       };
                                     }
                                   );
@@ -753,10 +762,13 @@ in
                             type = lib.types.str;
                             default = cfg.apiMappings.${kind} or (throw "No apiMapping for ${kind}");
                             defaultText = lib.literalMD "the `kubernetes.apiMappings` entry of the object's kind";
+                            description = "The object's apiVersion. Evaluation fails when it is not set and the kind has no `kubernetes.apiMappings` entry.";
                           };
                           kind = lib.mkOption {
                             type = lib.types.str;
                             default = kind;
+                            defaultText = lib.literalMD "the attribute name above the object";
+                            description = "The object's kind.";
                           };
                           metadata = lib.mkOption {
                             type = lib.types.submodule {
@@ -765,18 +777,27 @@ in
                                 name = lib.mkOption {
                                   type = lib.types.str;
                                   default = name;
+                                  defaultText = lib.literalMD "the object's attribute name";
+                                  description = "The object's name.";
                                 };
                                 labels = lib.mkOption {
                                   type = labelsAnnotationsType;
                                   default = { };
+                                  description = "The object's labels.";
                                 };
                                 annotations = lib.mkOption {
                                   type = labelsAnnotationsType;
                                   default = { };
+                                  description = "The object's annotations.";
                                 };
                               };
                             };
                             default = { };
+                            description = ''
+                              The object's metadata. Other fields than these pass through as
+                              written. `namespace` is set from the attribute name above the
+                              kind, except under `none`.
+                            '';
                           };
                         };
                         config = lib.mkMerge [

@@ -34,13 +34,25 @@ in
     etcdPackage = lib.mkPackageOption pkgs "etcd" { };
     kubeadmConfig = lib.mkOption {
       type = ekn.lib.kubeValueType;
+      description = ''
+        The kubeadm ClusterConfiguration that makes the validation harness's
+        certificates. Every default is `mkDefault`, so a definition here
+        replaces one field and keeps the rest.
+      '';
     };
     podSubnet = lib.mkOption {
       type = lib.types.str;
       default = "10.97.0.0/16";
+      description = "The pod CIDR the validation harness gives kubeadm.";
     };
     serviceSubnet = lib.mkOption {
       type = lib.types.str;
+      defaultText = lib.literalMD "the CIDRs of `kubernetes.clusterInfo.serviceCidr`, IPv4 first";
+      description = ''
+        The service CIDRs of the validation harness, comma-separated. The API
+        server's `--service-cluster-ip-range` and the kubeadm certificates
+        both use it.
+      '';
       # Comma-separated CIDRs, one per family the service CIDR serves --
       # kube-apiserver only accepts `RequireDualStack' Services when
       # `--service-cluster-ip-range` lists both. The default derives from
