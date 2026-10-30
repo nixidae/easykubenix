@@ -25,7 +25,7 @@ from kappy.converge import DEFAULT_CONCURRENCY, DEFAULT_SETTLE_SECONDS, DEFAULT_
 from kappy.directapply import report_failures
 from pydantic import TypeAdapter, ValidationError
 
-from ekn import clusterfence, enginepause, fastcache, livestate, seeds, storecheck
+from ekn import clusterfence, enginepause, fastcache, livestate, seeds, storecheck, worktree
 from ekn._cli import Command, build_parser, complete, dispatch, opt, pos
 from ekn.clusterdiff import cluster_diff
 from ekn.engine import (
@@ -2596,5 +2596,11 @@ async def _run_profiled(command: Command) -> None:
     what the profiler now wraps. cProfile is a global trace hook and does not
     care either way; it loses only the loop's own set-up.
     """
+    if isinstance(command, NixCommand) and command.file is not None:
+        try:
+            await worktree.prepare(command.file, refuse=isinstance(command, (KubeApply, Deploy)))
+        except worktree.UntrackedFilesError as exc:
+            _log.error(str(exc))
+            raise SystemExit(1) from exc
     with package_placeholder_evaluation(enabled=False), python_profile():
         await command.run()

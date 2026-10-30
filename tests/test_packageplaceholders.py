@@ -118,7 +118,12 @@ async def test_delivery_clears_inherited_preview_mode(monkeypatch: pytest.Monkey
     async def run(_self: object) -> None:
         assert VARIABLE not in os.environ
 
+    async def prepare(*_args: object, **_kwargs: object) -> None:
+        pass
+
     monkeypatch.setattr(cli.KubeApply, "run", run)
+    # "." is this repository: no snapshot of its working copy from a test.
+    monkeypatch.setattr(cli.worktree, "prepare", prepare)
     await cli._run_profiled(cli.KubeApply(file="."))
     assert os.environ[VARIABLE] == "1"
 
