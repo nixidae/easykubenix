@@ -61,7 +61,8 @@ if TYPE_CHECKING:
 _log = structlog.get_logger()
 
 STORE_DIR = "/nix/store"
-STORE_PATH = re.compile(rf"{STORE_DIR}/([a-z0-9]{{32}}-[A-Za-z0-9._+?=-]*)")
+# Nix's base-32 alphabet: a package placeholder's `e` hash is never a path.
+STORE_PATH = re.compile(rf"{STORE_DIR}/([0-9abcdfghijklmnpqrsvwxyz]{{32}}-[A-Za-z0-9._+?=-]*)")
 
 DEFAULT_JOBS = 16
 

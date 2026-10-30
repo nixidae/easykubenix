@@ -19,7 +19,9 @@
       {
         type = "derivation";
         name = label;
-        outPath = "/nix/store/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA-${label}";
+        # `e` is outside Nix's base-32 alphabet, so this is never a real path,
+        # and a schema's `[0-9a-z]{32}` store-path pattern still accepts it.
+        outPath = "/nix/store/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-${label}";
         drvPath = throw "Package placeholders support inspection only.";
         meta.mainProgram = label;
       }

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import os
+import re
 from typing import TYPE_CHECKING
 
 import pygit2
@@ -14,6 +15,7 @@ from ekn.git import commit_manifests, diff_manifests
 from ekn.gitops import flatten_manifests
 from ekn.nixyaml import from_yaml
 from ekn.packageplaceholders import evaluation_mode, normalize_manifest_yaml
+from ekn.storecheck import STORE_PATH
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -23,7 +25,7 @@ if TYPE_CHECKING:
 
 VARIABLE = "EKN_PACKAGE_PLACEHOLDERS"
 REAL = "/nix/store/" + "0" * 32 + "-program-1.0"
-PREVIEW = "/nix/store/" + "A" * 32 + "-program"
+PREVIEW = "/nix/store/" + "e" * 32 + "-program"
 MANIFEST: Manifest = {
     "apiVersion": "v1",
     "kind": "ConfigMap",
@@ -33,6 +35,13 @@ MANIFEST: Manifest = {
     },
     "data": {"command": f"{REAL}/bin/program --file={REAL}/share/input", "other": "unchanged"},
 }
+
+
+def test_preview_passes_a_store_path_schema_and_is_never_a_real_path() -> None:
+    # nixkube's CRDs check a store path against this pattern.
+    assert re.fullmatch(r"/nix/store/[0-9a-z]{32}-.+", PREVIEW)
+    assert not STORE_PATH.search(PREVIEW)
+    assert STORE_PATH.search(REAL)
 
 
 @pytest.mark.parametrize("operation", ["render", "diff"])

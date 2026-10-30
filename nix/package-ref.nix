@@ -4,7 +4,7 @@ let
   preview = import ../easykubenix/lib/packageRef.nix { enabled = true; };
   normal = import ../easykubenix/lib/packageRef.nix { enabled = false; };
   poison = throw "Package references force their package argument.";
-  path = "/nix/store/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA-example";
+  path = "/nix/store/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-example";
   package =
     (builtins.derivation {
       name = "package-ref-check";

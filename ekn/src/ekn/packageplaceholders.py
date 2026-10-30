@@ -17,8 +17,8 @@ if TYPE_CHECKING:
     from huggorm.jsonprimop import JsonValue
 
 _ENVIRONMENT_VARIABLE = "EKN_PACKAGE_PLACEHOLDERS"
-_STORE_ROOT = re.compile(r"/nix/store/(?:[0-9abcdfghijklmnpqrsvwxyz]{32}|A{32})-[A-Za-z0-9._+?=-]+")
-_PLACEHOLDER = "/nix/store/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA-placeholder"
+_STORE_ROOT = re.compile(r"/nix/store/(?:[0-9abcdfghijklmnpqrsvwxyz]{32}|e{32})-[A-Za-z0-9._+?=-]+")
+_PLACEHOLDER = "/nix/store/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-placeholder"
 _HASH_ANNOTATIONS = ("ekn.dev/manifest-hash", "ekn.dev/manifest-digest")
 _HASH_PATHS_ANNOTATION = "ekn.dev/package-placeholder-hashes"
 _REAL_STORE_ROOT = re.compile(r"/nix/store/[0-9abcdfghijklmnpqrsvwxyz]{32}-[A-Za-z0-9._+?=-]+")
