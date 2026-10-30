@@ -38,6 +38,7 @@ from ekn.engine import (
 )
 from ekn.eval import (
     ApplyGroup,
+    CacheConfigResult,
     GitOpsManifestsResult,
     Instance,
     KubeApplyConfigResult,
@@ -530,13 +531,20 @@ class CachePushCommand(AttrCommand):
         "exit, and reads this as EKN_CACHE_ALLOW_FAILURE to decide for itself.",
     )
 
-    async def push_cache(self) -> None:
-        """Run the push this command's flags ask for, timed and labelled."""
+    async def push_cache(self, cache: CacheConfigResult | None = None) -> None:
+        """Run the push this command's flags ask for, timed and labelled.
+
+        `cache` is the push from the evaluation the command acts on. Without
+        it the push evaluates again, which reads the working tree again
+        (#1130)."""
         if not self.cache_push:
             _log.info("--no-cache-push: not pushing to ekn.cacheTo")
             return
         with timed_stage(f"{self.cli_name or type(self).__name__.lower()}: cache-push (total, incl. network copy)"):
-            await _push_ekn_cache(self.file, self.flake, self.attr, allow_failure=self.cache_allow_failure)
+            if cache is None:
+                await _push_ekn_cache(self.file, self.flake, self.attr, allow_failure=self.cache_allow_failure)
+            else:
+                await _push_cache_config(cache, allow_failure=self.cache_allow_failure)
 
 
 class Commit(AttrCommand):
@@ -617,7 +625,11 @@ async def _push_ekn_cache(file: _Path | None, flake: str | None, attr: str | Non
         _report_nix_error(exc)
     except ValidationError as exc:
         _report_validation_error("cache config", exc)
+    await _push_cache_config(cfg, allow_failure=allow_failure)
 
+
+async def _push_cache_config(cfg: CacheConfigResult, *, allow_failure: bool) -> None:
+    """Push `cfg.cache_paths` to every `ekn.cacheTo` destination."""
     if not cfg.cache_to:
         _log.info("ekn.cacheTo is null -- skipping the cache push")
         return
@@ -1792,7 +1804,7 @@ class KubeApply(UnitTargets, CachePushCommand, FencedCommand):
             )
 
         try:
-            cfg = await evaluate_kubeapply_config(self.instance, self.targets)
+            cfg = await evaluate_kubeapply_config(self.instance, self.targets, cache=self.cache_push)
         except NixError as exc:
             _report_nix_error(exc)
         except ValidationError as exc:
@@ -1820,7 +1832,7 @@ class KubeApply(UnitTargets, CachePushCommand, FencedCommand):
         # can fetch them. A leg whose only substituter is the workload it is
         # needed to start -- pynixd's own environment -- passes the push and
         # fails the assertion, which is the right way round.
-        await self.push_cache()
+        await self.push_cache(cfg.cache)
 
         # `AsyncExitStack` rather than two code paths: the kubeconfig is a
         # temporary file that must outlive the apply and not outlive the

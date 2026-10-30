@@ -246,6 +246,9 @@ class KubeApplyConfigResult(BaseModel):
     #: predates the option; both are "unknown cluster", which every fenced
     #: command refuses without a flag. See `clusterfence.require`.
     cluster_uid: str | None = Field(default=None, alias="clusterUid")
+    #: What the cache push sends, from this same evaluation (#1130). `None`
+    #: when the caller did not ask: `--no-cache-push`.
+    cache: CacheConfigResult | None = None
 
     @property
     def objects(self) -> list[dict[str, Any]]:
@@ -1016,6 +1019,8 @@ async def _instance_field_manager(deployment: Any) -> str:
 async def evaluate_kubeapply_config(
     instance: Instance,
     targets: Sequence[str],
+    *,
+    cache: bool = False,
 ) -> KubeApplyConfigResult:
     """Resolve the object list `ekn kubeapply` should apply, plus the
     `ekn.environment`/`ekn.resourcePriority` `apply_and_prune` needs
@@ -1032,6 +1037,10 @@ async def evaluate_kubeapply_config(
     environment. What separates them is the `ekn.dev/deployment-unit` label
     easykubenix renders onto a unit's objects, which the caller turns into a
     prune selector -- see `apply.prune_selector`.
+
+    `cache` adds the cache push's paths from this evaluation. A second
+    evaluation reads the working tree again, and an edit between the two
+    pushed one manifest and applied another (#1130).
     """
     async with _evaluator() as eval_:
         proxy = await _resolve_proxy(eval_, instance)
@@ -1137,6 +1146,7 @@ async def evaluate_kubeapply_config(
                 "unitFieldManagers": unit_managers,
                 "preApplyCommand": pre_apply_command,
                 "clusterUid": cluster_uid,
+                "cache": await _cache_config(proxy) if cache else None,
             }
         )
 
@@ -1165,30 +1175,35 @@ async def evaluate_cache_config(
     """
     async with _evaluator() as eval_:
         proxy = await _resolve_proxy(eval_, instance)
-        proxy = await _kubernetes_config(proxy)
+        return await _cache_config(await _kubernetes_config(proxy))
 
-        declared = await proxy.attr("ekn").attr("cacheTo").to_python()
-        if declared is None:
-            return CacheConfigResult.model_validate({"cache_to": []})
-        # A bare string is the ordinary one-destination case; normalise it
-        # here so nothing downstream has to branch on the shape.
-        cache_to = [declared] if isinstance(declared, str) else declared
 
-        timeout_sec = await proxy.attr("ekn").attr("cacheTimeoutSec").to_python()
-        accept_new = await proxy.attr("ekn").attr("cacheAcceptNewHostKeys").to_python()
+async def _cache_config(proxy: nix.Value) -> CacheConfigResult:
+    """`evaluate_cache_config`'s answer, from a cluster configuration already
+    evaluated. `ekn kubeapply` asks it of the evaluation it applies, so the
+    push and the apply read the working tree once (#1130)."""
+    declared = await proxy.attr("ekn").attr("cacheTo").to_python()
+    if declared is None:
+        return CacheConfigResult.model_validate({"cache_to": []})
+    # A bare string is the ordinary one-destination case; normalise it
+    # here so nothing downstream has to branch on the shape.
+    cache_to = [declared] if isinstance(declared, str) else declared
 
-        with timed_stage("cache-push: build the manifest and realise its closure"):
-            manifest_out = await proxy.attr("internal").attr("manifestJSONFile").realise_string()
-        manifest_text = await Path(manifest_out).read_text()
-        cache_paths = sorted(f"{STORE_DIR}/{name}" for name in store_paths_in_text(manifest_text))
-        return CacheConfigResult.model_validate(
-            {
-                "cache_to": cache_to,
-                "cache_paths": cache_paths,
-                "cache_timeout_sec": timeout_sec,
-                "cache_accept_new_host_keys": accept_new,
-            }
-        )
+    timeout_sec = await proxy.attr("ekn").attr("cacheTimeoutSec").to_python()
+    accept_new = await proxy.attr("ekn").attr("cacheAcceptNewHostKeys").to_python()
+
+    with timed_stage("cache-push: build the manifest and realise its closure"):
+        manifest_out = await proxy.attr("internal").attr("manifestJSONFile").realise_string()
+    manifest_text = await Path(manifest_out).read_text()
+    cache_paths = sorted(f"{STORE_DIR}/{name}" for name in store_paths_in_text(manifest_text))
+    return CacheConfigResult.model_validate(
+        {
+            "cache_to": cache_to,
+            "cache_paths": cache_paths,
+            "cache_timeout_sec": timeout_sec,
+            "cache_accept_new_host_keys": accept_new,
+        }
+    )
 
 
 async def realise_attr(
