@@ -144,11 +144,12 @@ def test_starting_inside_the_loop_attributes_the_wait(work: Callable[[], Awaitab
     selector, awaiting = _split(anyio.run(run, backend="asyncio"))
 
     assert awaiting > 0, "the awaiting frame holds no time"
-    # A share, not exact zero. The loop really does enter `select` between
-    # wakeups, and a 1 ms sampler catches 1-4 of those samples. Measured
-    # worst share over 49 runs: 3.6%. The failure this guards against puts
-    # the *whole* wait in the selector, which is 100%.
-    assert selector < awaiting / 10, f"{selector}s of {awaiting}s landed in the loop's selector, not the awaiting frame"
+    # Less than half, not a small share. The loop really does enter `select`
+    # between wakeups, and the fanned-out wait is only 50 ms, so each stray
+    # 1 ms sample is 2%. A loaded GHA runner measured 10.9% (run 41219174475).
+    # The failure this guards against puts the *whole* wait in the selector,
+    # which is 100%.
+    assert selector < awaiting, f"{selector}s of {awaiting}s landed in the loop's selector, not the awaiting frame"
 
 
 @pytest.mark.parametrize("work", [sequentially, fanned_out], ids=["sequential", "fanned-out"])
