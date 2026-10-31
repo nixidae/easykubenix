@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import cProfile
+import json
 import os
 import pstats
 import sys
@@ -26,7 +27,7 @@ from huggorm.fod import (
 )
 from pydantic import BaseModel, Field, StringConstraints
 
-from ekn import nix
+from ekn import nix, storeplaceholders
 from ekn.engine import FIELD_MANAGER, UNIT_LABEL
 from ekn.gitops import load_raw_manifest
 from ekn.storecheck import STORE_DIR, store_paths_in_text
@@ -998,6 +999,33 @@ def _unit_group(units: JsonValue, name: str) -> dict[str, Any]:
     }
 
 
+async def _resolve_placeholders(proxy: nix.Value, groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """`groups` with each downstream placeholder replaced by its store path.
+
+    `to_python` reads strings as evaluation left them, and a content-addressed
+    or dynamic output is still a placeholder there. Only the build of
+    `internal.manifestJSONFile` resolves it, so that build, paired with
+    `internal.manifestJSON`, gives the paths (`ekn.storeplaceholders`). It is
+    skipped when no object holds a placeholder.
+    """
+    if not storeplaceholders.has_placeholders([group["objects"] for group in groups]):
+        return groups
+    with timed_stage("kubeapply: resolve downstream placeholders"):
+        resolved_path = await proxy.attr("internal").attr("manifestJSONFile").realise_string()
+        resolved = json.loads(await Path(resolved_path).read_text())
+        unresolved_text = await proxy.attr("internal").attr("manifestJSON").to_python()
+    if not isinstance(unresolved_text, str):
+        raise TypeError("internal.manifestJSON did not evaluate to a string")
+    mapping = storeplaceholders.placeholder_map(json.loads(unresolved_text), resolved)
+    rewritten = [{**group, "objects": storeplaceholders.rewrite(group["objects"], mapping)} for group in groups]
+    if storeplaceholders.has_placeholders([group["objects"] for group in rewritten]):
+        raise ValueError(
+            "a downstream placeholder is in the objects to apply and not in internal.manifestJSON, "
+            "so no build resolves it"
+        )
+    return rewritten
+
+
 async def _instance_field_manager(deployment: Any) -> str:
     """`deployment.fieldManager`, or the built-in default without it.
 
@@ -1088,6 +1116,8 @@ async def evaluate_kubeapply_config(
                     "objects": [*generated, *_load_raw_manifests(raw_file_paths)],
                 }
             ]
+
+        groups = await _resolve_placeholders(proxy, groups)
 
         # Absent on an easykubenix older than the option. Left as `None`, which
         # a whole-instance `--prune` reads as "the exclusion set is unknown"
