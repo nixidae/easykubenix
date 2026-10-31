@@ -163,6 +163,10 @@ let
             # 0.943s, 100 1.116s, against 0.245s for a bare `runCommand`.
             # Nothing forces it unless a configuration uses a transform.
             nativeBuildInputs = [ pkgs.nix ];
+            # Evaluation waits on this build, which is one evaluation itself:
+            # a remote builder adds a round trip and loses the log a failure
+            # explains itself with.
+            preferLocalBuild = true;
           }
           # bash
           ''

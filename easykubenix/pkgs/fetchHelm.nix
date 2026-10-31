@@ -28,6 +28,9 @@ in
 }:
 stdenvNoCC.mkDerivation {
   name = "${cleanName chart}-${if version == null then "dev" else version}";
+  # A download, as nixpkgs' `fetchurl` says: on a remote builder it only
+  # crosses the network twice.
+  preferLocalBuild = true;
 
   buildCommand = ''
     export HOME="$PWD"
