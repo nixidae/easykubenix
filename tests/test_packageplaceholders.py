@@ -9,7 +9,7 @@ import pygit2
 import pytest
 from json_at import at, mapping_at, text_at
 
-from ekn import cli, packageplaceholders
+from ekn import cli, packageplaceholders, worktree
 from ekn._cli import build_parser
 from ekn.git import commit_manifests, diff_manifests
 from ekn.gitops import flatten_manifests
@@ -123,7 +123,7 @@ async def test_delivery_clears_inherited_preview_mode(monkeypatch: pytest.Monkey
 
     monkeypatch.setattr(cli.KubeApply, "run", run)
     # "." is this repository: no snapshot of its working copy from a test.
-    monkeypatch.setattr(cli.worktree, "prepare", prepare)
+    monkeypatch.setattr(worktree, "prepare", prepare)
     await cli._run_profiled(cli.KubeApply(file="."))
     assert os.environ[VARIABLE] == "1"
 

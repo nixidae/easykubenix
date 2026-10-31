@@ -35,7 +35,7 @@ def untracked(repo: pygit2.Repository) -> list[str]:
 
 async def prepare(entry: str | os.PathLike[str], *, refuse: bool) -> None:
     """Snapshot a colocated jj repository; with `refuse`, fail on files outside the index."""
-    git_dir = pygit2.discover_repository(str(Path(entry).resolve()))
+    git_dir = pygit2.discover_repository(str(await anyio.Path(entry).resolve()))
     if git_dir is None:
         return
     repo = pygit2.Repository(git_dir)

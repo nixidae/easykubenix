@@ -20,7 +20,7 @@ from ekn.eval import CacheConfigResult, KubeApplyConfigResult
 CACHE = CacheConfigResult(cache_to=["ssh-ng://cache"], cache_paths=["/nix/store/" + "a" * 32 + "-source"])
 
 
-class Stop(Exception):
+class StopError(Exception):
     pass
 
 
@@ -52,7 +52,7 @@ async def test_the_push_is_the_applied_evaluations(monkeypatch: pytest.MonkeyPat
         return None
 
     async def api(*_args: Any, **_kwargs: Any) -> object:
-        raise Stop
+        raise StopError
 
     monkeypatch.setattr(cli, "evaluate_kubeapply_config", evaluate)
     monkeypatch.setattr(cli, "evaluate_cache_config", evaluate_again)
@@ -60,7 +60,7 @@ async def test_the_push_is_the_applied_evaluations(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr(cli, "_run_pre_apply", nothing)
     monkeypatch.setattr(kr8s.asyncio, "api", api)
 
-    with pytest.raises(Stop):
+    with pytest.raises(StopError):
         await cli.KubeApply(file=".", cache_push=cache_push, skip_schema_check=True).run()
 
     assert [kwargs.get("cache") for kwargs in evaluated] == [cache_push]
