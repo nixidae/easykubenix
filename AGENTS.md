@@ -112,13 +112,7 @@ somewhere nobody else looks: `git-bug` keeps entities in `refs/bugs/*`, which
 no clone fetches by default and no ordinary `git push` publishes. An issue
 filed there is invisible to everyone including the person who asked for it.
 
-# Version control
-
-This repository uses Jujutsu (`jj`) for version control. Prefer `jj` commands
-for status, diffs, history, and commit/change inspection. Do not assume a Git
-workflow or run Git porcelain commands such as `git status`, `git diff`,
-`git commit`, `git checkout`, or `git reset` unless the user explicitly asks for
-Git or a tool requires Git-specific plumbing.
+# Test output
 
 Run pytest commands so the complete output is preserved. Do not pipe pytest
 directly into `tail`, `head`, `grep`, or similar filters. If you need a short
