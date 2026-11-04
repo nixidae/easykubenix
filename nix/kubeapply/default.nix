@@ -106,6 +106,9 @@ vivarium.mkTest {
       environment
       otherEnvironment
       unit
+      probeNamespace
+      probeEnvironment
+      mutatedLabel
       ;
 
     inherit (images) workloadImage;

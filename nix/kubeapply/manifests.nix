@@ -123,9 +123,92 @@ let
     deployment.deployBranch = "deploy";
     deployment.units.bootstrap.modules = [ { kubernetes.objects.${namespace} = objects; } ];
   };
+
+  # A MutatingAdmissionPolicy that labels each Deployment created in
+  # `probeNamespace`, and a Deployment after it. The API server loads the
+  # policy asynchronously, so only the binding's probe keeps the Deployment
+  # from going out before the policy acts (nixidae/nixidae#1175).
+  # `expected` is what the probe waits for; a value the policy never sets
+  # makes a probe that never passes.
+  probeNamespace = "ekn-kubeapply-probe";
+  mutatedLabel = "ekn.example.com/mutated";
+  deploymentIn = name: {
+    apiVersion = "apps/v1";
+    kind = "Deployment";
+    metadata = {
+      inherit name;
+      namespace = probeNamespace;
+    };
+    spec = {
+      replicas = 0;
+      selector.matchLabels.app = name;
+      template = {
+        metadata.labels.app = name;
+        spec.containers = [
+          {
+            name = "main";
+            image = workloadImage;
+            imagePullPolicy = "Never";
+          }
+        ];
+      };
+    };
+  };
+  probedWith = expected: {
+    ekn.environment = "kubeapply-probe";
+    kubernetes.apiMappings = {
+      MutatingAdmissionPolicy = "admissionregistration.k8s.io/v1";
+      MutatingAdmissionPolicyBinding = "admissionregistration.k8s.io/v1";
+    };
+    kubernetes.objects = {
+      none.Namespace.${probeNamespace} = { };
+      none.MutatingAdmissionPolicy.ekn-probe.spec = {
+        failurePolicy = "Fail";
+        reinvocationPolicy = "Never";
+        matchConstraints.resourceRules = [
+          {
+            apiGroups = [ "apps" ];
+            apiVersions = [ "v1" ];
+            operations = [ "CREATE" ];
+            resources = [ "deployments" ];
+          }
+        ];
+        matchConditions = [
+          {
+            name = "probe-namespace";
+            expression = "object.metadata.namespace == '${probeNamespace}'";
+          }
+        ];
+        mutations = [
+          {
+            patchType = "ApplyConfiguration";
+            applyConfiguration.expression = "Object{metadata: Object.metadata{labels: {'${mutatedLabel}': 'yes'}}}";
+          }
+        ];
+      };
+      none.MutatingAdmissionPolicyBinding.ekn-probe = {
+        spec.policyName = "ekn-probe";
+        ekn.probe = {
+          object = deploymentIn "kappy-probe";
+          matches.metadata.labels.${mutatedLabel} = expected;
+        };
+      };
+      ${probeNamespace}.Deployment.mutated = removeAttrs (deploymentIn "mutated") [
+        "apiVersion"
+        "kind"
+        "metadata"
+      ];
+    };
+  };
 in
 {
-  inherit namespace otherNamespace;
+  inherit
+    namespace
+    otherNamespace
+    probeNamespace
+    mutatedLabel
+    ;
+  probeEnvironment = "kubeapply-probe";
 
   environment = "kubeapply";
   otherEnvironment = "kubeapply-other";
@@ -182,5 +265,8 @@ in
     unitReduced = unitWith {
       ConfigMap.bootstrap.data.greeting = "from-unit";
     };
+
+    probed = probedWith "yes";
+    probedNever = probedWith "never-set";
   };
 }

@@ -20,6 +20,9 @@ missing the controllers:
     prune scope    a whole-instance prune leaves a deployment unit's objects
                    alone, and a unit's own prune leaves the instance's alone
     prune gap      the documented limitation, written down as it behaves
+    probe          a Deployment after a MutatingAdmissionPolicy goes out
+                   only once the policy acts, and a probe that never passes
+                   fails the apply before the Deployment is sent
 
 Everything runs inside the guest.  It sees the host /nix/store over hostfs,
 so `ekn` and the manifests are already there; ../kubeapply/default.nix puts
@@ -86,8 +89,12 @@ async def apply(  # noqa: PLR0913 -- one call site per check, and each argument 
     environment: str,
     unit: str | None = None,
     assume_unchanged: bool = False,
+    ready_seconds: int | None = None,
+    fails: bool = False,
 ) -> str:
     """Run one `ekn _applyManifest` in the guest, and return its output.
+
+    With `fails`, the apply must exit non-zero, and its output is returned.
 
     The output is printed whether the apply passes or fails.  `ekn` logs a
     line per barrier and a line per pruned object, and that is the record of
@@ -108,10 +115,14 @@ async def apply(  # noqa: PLR0913 -- one call site per check, and each argument 
         command += f" --unit {unit}"
     for excluded in hand_applied:
         command += f" --hand-applied {excluded}"
+    if ready_seconds is not None:
+        command += f" --ready-seconds {ready_seconds}"
     rc, out = await cp.execute(command, timeout=APPLY_TIMEOUT)
-    if rc != 0:
-        raise MachineError(f"[cp] {generation} did not apply (exit {rc}):\n{out}")
     print(out, flush=True)
+    if fails and rc == 0:
+        raise MachineError(f"[cp] {generation} applied, and it must not have:\n{out}")
+    if not fails and rc != 0:
+        raise MachineError(f"[cp] {generation} did not apply (exit {rc}):\n{out}")
     return out
 
 
@@ -477,6 +488,35 @@ async def check_prune_gap(cp: Machine, settings: dict[str, Any]) -> None:
     print("[kubeapply] the prune gap still behaves as documented", flush=True)
 
 
+async def check_probe(cp: Machine, settings: dict[str, Any]) -> None:
+    """An admission policy holds what comes after it until it acts.
+
+    The never-passing probe goes first, on a cluster that has never seen the
+    policy: the apply must fail, name the binding, and not send the
+    Deployment.  Then the real probe: the Deployment goes out, and carries
+    the label only the policy sets.
+    """
+    namespace = settings["probeNamespace"]
+    environment = settings["probeEnvironment"]
+    label = settings["mutatedLabel"]
+
+    out = await apply(cp, settings, "probedNever", environment, ready_seconds=20, fails=True)
+    # The error arrives wrapped at the terminal width.
+    if "MutatingAdmissionPolicyBinding/ekn-probe did not come into effect within 20s" not in " ".join(out.split()):
+        raise MachineError("the failed apply does not name the binding and its bound")
+    rc, _ = await cp.execute(f"kubectl get deployment mutated --namespace {namespace}")
+    expect("whether the held Deployment was sent", rc != 0, True)
+
+    out = await apply(cp, settings, "probed", environment, ready_seconds=120)
+    if "waiting for it to come into effect" not in out:
+        raise MachineError("the apply did not probe the binding")
+    mutated = await get_json(cp, f"get deployment mutated --namespace {namespace}")
+    expect("the policy's label on the Deployment", mutated["metadata"]["labels"].get(label), "yes")
+    rc, _ = await cp.execute(f"kubectl get deployment kappy-probe --namespace {namespace}")
+    expect("whether the probe's dry-run stored its object", rc != 0, True)
+    print("[kubeapply] the probe held the Deployment until the policy acted", flush=True)
+
+
 async def test(vms: Machines) -> None:
     settings = vms.settings
     print(
@@ -495,6 +535,7 @@ async def test(vms: Machines) -> None:
     await check_prune(cp, settings)
     await check_unit_prune(cp, settings)
     await check_prune_gap(cp, settings)
+    await check_probe(cp, settings)
 
     print(
         "[kubeapply] " + await kubectl(cp, "get all --all-namespaces"),
