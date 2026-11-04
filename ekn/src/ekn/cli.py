@@ -23,6 +23,7 @@ from huggorm.errors import NixError
 from huggorm.jsonprimop import JsonValue
 from kappy.converge import DEFAULT_CONCURRENCY, DEFAULT_SETTLE_SECONDS, DEFAULT_WAIT_SECONDS, object_key
 from kappy.directapply import report_failures
+from kappy.readiness import DEFAULT_READY_SECONDS
 from pydantic import TypeAdapter, ValidationError
 
 from ekn import clusterfence, enginepause, fastcache, livestate, seeds, storecheck, worktree
@@ -1245,6 +1246,7 @@ async def _converge_group(  # noqa: PLR0913 -- the same state `apply_and_prune` 
     protect: set[ObjectKey],
     unit_managers: Mapping[str, str] | None,
     cache: fastcache.ApplyCache | None = None,
+    ready_seconds: float = DEFAULT_READY_SECONDS,
 ) -> None:
     """One group, converged rather than applied in barriers.
 
@@ -1267,6 +1269,7 @@ async def _converge_group(  # noqa: PLR0913 -- the same state `apply_and_prune` 
         concurrency=options.concurrency,
         settle_seconds=options.settle_seconds,
         wait_seconds=options.wait_seconds,
+        ready_seconds=ready_seconds,
         allow_recreate=options.allow_recreate,
         unit_managers=unit_managers,
         cache=cache,
@@ -1362,6 +1365,7 @@ async def _apply_groups(  # noqa: PLR0913 -- each argument is one decision `ekn 
     converge: _ConvergeOptions | None = None,
     held_by_engine_pause: set[ObjectKey] | None = None,
     assume_unchanged: bool = False,
+    ready_seconds: float = DEFAULT_READY_SECONDS,
 ) -> None:
     """Decrypt and seed-resolve every group, then apply them in order.
 
@@ -1435,6 +1439,7 @@ async def _apply_groups(  # noqa: PLR0913 -- each argument is one decision `ekn 
             held=held,
             unit_managers=unit_managers,
             cache=cache,
+            ready_seconds=ready_seconds,
         )
     finally:
         if cache is not None:
@@ -1577,6 +1582,7 @@ async def _apply_prepared(  # noqa: PLR0913 -- the state `_apply_groups` built, 
     held: set[ObjectKey],
     unit_managers: Mapping[str, str] | None,
     cache: fastcache.ApplyCache | None,
+    ready_seconds: float,
 ) -> None:
     """Apply each prepared group, in order.
 
@@ -1602,6 +1608,7 @@ async def _apply_prepared(  # noqa: PLR0913 -- the state `_apply_groups` built, 
                 protect=protected,
                 unit_managers=unit_managers,
                 cache=cache,
+                ready_seconds=ready_seconds,
             )
             continue
         await apply_and_prune(
@@ -1627,6 +1634,7 @@ async def _apply_prepared(  # noqa: PLR0913 -- the state `_apply_groups` built, 
             # and `enginepause`.
             protect=protected,
             cache=cache,
+            ready_seconds=ready_seconds,
         )
 
 
@@ -1678,6 +1686,12 @@ class KubeApply(UnitTargets, CachePushCommand, FencedCommand):
         help="How long --converge holds an object whose ekn.after dependencies do not exist yet, from the first "
         "wait, before it gives up and names what never appeared. The settle window does not apply while "
         f"objects wait. Default {DEFAULT_WAIT_SECONDS:.0f}.",
+    )
+    ready_seconds: float = opt(
+        DEFAULT_READY_SECONDS,
+        help="How long an object with an ekn.probe may take to come into effect, from when it reaches the "
+        "cluster. Every object of a later ekn.resourcePriority waits for it, and fails with it when the time "
+        f"runs out. With and without --converge. Default {DEFAULT_READY_SECONDS:.0f}.",
     )
     allow_recreate: bool = opt(
         False,
@@ -1866,6 +1880,7 @@ class KubeApply(UnitTargets, CachePushCommand, FencedCommand):
                         allow_recreate=self.allow_recreate,
                     ),
                     assume_unchanged=self.assume_unchanged,
+                    ready_seconds=self.ready_seconds,
                 )
             except kr8s.ServerError as exc:
                 _report_server_error("apply", exc)
@@ -2395,6 +2410,11 @@ class ApplyManifest(Command):
         "ekn validate runs it against a fresh API server every time, and each of those would leave a "
         "cache file named after a cluster that no longer exists.",
     )
+    ready_seconds: float | None = opt(
+        None,
+        help="As ekn kubeapply --ready-seconds. Omitted, ekn.probe is ignored: a validation API server runs no "
+        "webhook backends, so a probe there waits for nothing.",
+    )
 
     async def run(self) -> None:
         resource_priority: dict[str, int] = {}
@@ -2440,6 +2460,7 @@ class ApplyManifest(Command):
                 hand_applied=self.hand_applied,
                 resource_priority=resource_priority,
                 cache=cache,
+                ready_seconds=self.ready_seconds,
             )
         except kr8s.ServerError as exc:
             _report_server_error("apply", exc)
