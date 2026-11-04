@@ -91,6 +91,7 @@ async def apply(  # noqa: PLR0913 -- one call site per check, and each argument 
     assume_unchanged: bool = False,
     ready_seconds: int | None = None,
     fails: bool = False,
+    converge: bool = False,
 ) -> str:
     """Run one `ekn _applyManifest` in the guest, and return its output.
 
@@ -117,6 +118,8 @@ async def apply(  # noqa: PLR0913 -- one call site per check, and each argument 
         command += f" --hand-applied {excluded}"
     if ready_seconds is not None:
         command += f" --ready-seconds {ready_seconds}"
+    if converge:
+        command += " --converge"
     rc, out = await cp.execute(command, timeout=APPLY_TIMEOUT)
     print(out, flush=True)
     if fails and rc == 0:
@@ -517,6 +520,29 @@ async def check_probe(cp: Machine, settings: dict[str, Any]) -> None:
     print("[kubeapply] the probe held the Deployment until the policy acted", flush=True)
 
 
+async def check_converge(cp: Machine, settings: dict[str, Any]) -> None:
+    """`--converge` applies through `converge_direct`, probe and prune included.
+
+    The policy is in effect already, so the probe passes at once; what this
+    proves is the converging path of `_applyManifest` end to end, which a
+    sandboxed test needs to apply a cluster whose operator installs CRDs
+    while the apply runs.
+    """
+    namespace = settings["probeNamespace"]
+    await cp.succeed(f"kubectl delete deployment mutated --namespace {namespace} --wait")
+    out = await apply(cp, settings, "probed", settings["probeEnvironment"], ready_seconds=120, converge=True)
+    # A failed object exits non-zero, which `apply` already refuses.
+    if "converging" not in out:
+        raise MachineError("the apply did not take the converging path")
+    mutated = await get_json(cp, f"get deployment mutated --namespace {namespace}")
+    expect(
+        "the policy's label after a converging apply",
+        mutated["metadata"]["labels"].get(settings["mutatedLabel"]),
+        "yes",
+    )
+    print("[kubeapply] a converging apply recreated the Deployment through the policy", flush=True)
+
+
 async def test(vms: Machines) -> None:
     settings = vms.settings
     print(
@@ -536,6 +562,7 @@ async def test(vms: Machines) -> None:
     await check_unit_prune(cp, settings)
     await check_prune_gap(cp, settings)
     await check_probe(cp, settings)
+    await check_converge(cp, settings)
 
     print(
         "[kubeapply] " + await kubectl(cp, "get all --all-namespaces"),

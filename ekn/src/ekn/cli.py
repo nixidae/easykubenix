@@ -2413,7 +2413,12 @@ class ApplyManifest(Command):
     ready_seconds: float | None = opt(
         None,
         help="As ekn kubeapply --ready-seconds. Omitted, ekn.probe is ignored: a validation API server runs no "
-        "webhook backends, so a probe there waits for nothing.",
+        "webhook backends, so a probe there waits for nothing. With --converge, omitted is kubeapply's default.",
+    )
+    converge: bool = opt(
+        False,
+        help="As ekn kubeapply --converge: apply until the cluster stops changing, then prune. For a real "
+        "cluster, where an operator installs CRDs that later objects need while the apply runs.",
     )
 
     async def run(self) -> None:
@@ -2452,22 +2457,55 @@ class ApplyManifest(Command):
             else None
         )
         try:
-            await apply_and_prune(
-                objects,
-                api=api,
-                environment=self.environment,
-                unit=self.unit,
-                hand_applied=self.hand_applied,
-                resource_priority=resource_priority,
-                cache=cache,
-                ready_seconds=self.ready_seconds,
-            )
+            if self.converge:
+                await self._converge(objects, api=api, resource_priority=resource_priority, cache=cache)
+            else:
+                await apply_and_prune(
+                    objects,
+                    api=api,
+                    environment=self.environment,
+                    unit=self.unit,
+                    hand_applied=self.hand_applied,
+                    resource_priority=resource_priority,
+                    cache=cache,
+                    ready_seconds=self.ready_seconds,
+                )
         except kr8s.ServerError as exc:
             _report_server_error("apply", exc)
         finally:
             if cache is not None:
                 cache.save()
                 _report_cache(cache, assume_unchanged=self.assume_unchanged)
+
+    async def _converge(
+        self,
+        objects: list[dict[str, Any]],
+        *,
+        api: kr8s.asyncio.Api,
+        resource_priority: dict[str, int],
+        cache: fastcache.ApplyCache | None,
+    ) -> None:
+        report, desired = await converge_direct(
+            objects,
+            api=api,
+            environment=self.environment,
+            resource_priority=resource_priority,
+            ready_seconds=DEFAULT_READY_SECONDS if self.ready_seconds is None else self.ready_seconds,
+            cache=cache,
+        )
+        report_failures(report)
+        if not report.ok:
+            raise SystemExit(
+                f"{len(report.failures)} object(s) did not converge."
+                " Nothing was pruned: a failed apply and a removed object look the same to a prune."
+            )
+        await prune_generation(
+            api,
+            desired=desired,
+            environment=self.environment,
+            unit=self.unit,
+            hand_applied=self.hand_applied,
+        )
 
 
 _json_value_adapter: TypeAdapter[JsonValue] = TypeAdapter(JsonValue)
