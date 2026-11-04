@@ -746,7 +746,7 @@ class TestRenamedOptionAliases:
         assert isinstance(result, list)
         assert result, "fixture rendered no objects, so this asserts nothing"
         for keys in result:
-            assert keys == ["after", "deploymentUnit", "novalidate"]
+            assert keys == ["after", "deploymentUnit", "novalidate", "probe"]
 
 
 class TestAfter:
@@ -762,6 +762,26 @@ class TestAfter:
             {"apiVersion": "v1", "kind": "Secret", "namespace": "postgres", "name": "keycloak-pg-app"},
         ]
         assert "kappy.dev/after" not in by_name["ungated"]["metadata"].get("annotations", {})
+
+
+class TestProbe:
+    """`ekn.probe` reaches the apply as kappy's annotation, and only there."""
+
+    async def test_it_renders_as_the_annotation(self) -> None:
+        result = await evaluate_file(NIX_TEST_FILE, "afterRenders")
+        assert isinstance(result, list)
+        by_name = {obj["metadata"]["name"]: obj for obj in result}
+        probed = by_name["probed"]
+        assert "ekn" not in probed
+        assert json.loads(probed["metadata"]["annotations"]["kappy.dev/probe"]) == {
+            "object": {"apiVersion": "v1", "kind": "ConfigMap", "metadata": {"name": "kappy-probe"}},
+            "denied": "probed",
+        }
+        assert list(by_name["ungated"]["metadata"]["annotations"]) == ["ekn.dev/manifest-hash"]
+
+    async def test_it_needs_exactly_one_expectation(self) -> None:
+        with pytest.raises(NixError, match=r"ConfigMap/both: ekn.probe needs exactly one"):
+            await evaluate_file(NIX_TEST_FILE, "probeWithBoth")
 
 
 class TestGitOpsTargetMetadata:

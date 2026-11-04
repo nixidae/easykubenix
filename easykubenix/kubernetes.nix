@@ -312,22 +312,37 @@ let
   #
   # The hash is then of the object exactly as it is applied, so nothing may
   # change an object after this. See lib/manifestHash.nix.
-  finalise = object: lib.stampManifestHash (removeAttrs (withAfter object) [ "ekn" ]);
+  finalise = object: lib.stampManifestHash (removeAttrs (withApplyHints object) [ "ekn" ]);
 
-  # `ekn.after` is the one EKN field the apply has to read, so it survives
-  # the strip as the annotation kappy's converging apply holds an object on
-  # (`kappy.dev/after`, kappy/converge.py).
-  withAfter =
+  # `ekn.after` and `ekn.probe` are the EKN fields the apply has to read, so
+  # they survive the strip as the annotations kappy reads: `kappy.dev/after`
+  # (kappy/converge.py) and `kappy.dev/probe` (kappy/readiness.py).
+  withApplyHints =
     object:
     let
+      name = "${object.kind or "?"}/${object.metadata.name or "?"}";
       after = object.ekn.after or [ ];
+      probe = object.ekn.probe or null;
+      expectations = lib.filter (key: probe.${key} != null) [
+        "matches"
+        "denied"
+      ];
+      annotations =
+        lib.optionalAttrs (after != [ ]) { "kappy.dev/after" = builtins.toJSON after; }
+        // lib.optionalAttrs (probe != null) {
+          "kappy.dev/probe" = builtins.toJSON (
+            { inherit (probe) object; } // lib.genAttrs expectations (key: probe.${key})
+          );
+        };
     in
-    if after == [ ] then
-      object
-    else
-      lib.recursiveUpdate object {
-        metadata.annotations."kappy.dev/after" = builtins.toJSON after;
-      };
+    lib.throwIf (probe != null && lib.length expectations != 1)
+      "${name}: ekn.probe needs exactly one of `matches` and `denied`."
+      (
+        if annotations == { } then
+          object
+        else
+          lib.recursiveUpdate object { metadata = { inherit annotations; }; }
+      );
 
   # `generated` and `deploymentUnits` share these thunks, so a routed object
   # is finalised once, and both outputs carry the same hash by construction.
@@ -742,6 +757,62 @@ in
                                     Creation only: an object that already exists is applied
                                     whatever its dependencies are doing. The barrier apply and
                                     the validation harness ignore it.
+                                  '';
+                                };
+                                probe = lib.mkOption {
+                                  type = lib.types.nullOr (
+                                    lib.types.submodule {
+                                      options = {
+                                        object = lib.mkOption {
+                                          type = lib.types.attrsOf lib.types.anything;
+                                          description = ''
+                                            The manifest to server-dry-run. It must pass
+                                            validation and Pod Security in its namespace, its
+                                            namespace must sort before this object, and its name
+                                            must not exist.
+                                          '';
+                                        };
+                                        matches = lib.mkOption {
+                                          type = lib.types.nullOr (lib.types.attrsOf lib.types.anything);
+                                          default = null;
+                                          description = ''
+                                            In effect when the dry-run is admitted and the stored
+                                            object contains this partial object. Lists compare
+                                            item by item and must have the same length. For a
+                                            mutating policy.
+                                          '';
+                                        };
+                                        denied = lib.mkOption {
+                                          type = lib.types.nullOr lib.types.str;
+                                          default = null;
+                                          description = ''
+                                            In effect when the dry-run is refused with this
+                                            substring in the message. For a validating policy or
+                                            a webhook. Use a string only this object says, such
+                                            as its name: a Pod Security refusal also refuses.
+                                          '';
+                                        };
+                                      };
+                                    }
+                                  );
+                                  default = null;
+                                  description = ''
+                                    How `ekn kubeapply` sees that this object is in effect: a
+                                    server dry-run and the answer it must give. Exactly one
+                                    of `matches` and `denied`. Rendered as the
+                                    `kappy.dev/probe` annotation.
+
+                                    The apply holds every object of a later
+                                    `ekn.resourcePriority` until the probe passes, for up to
+                                    `--ready-seconds`. A probe that does not pass fails this
+                                    object and all it holds.
+
+                                    For an admission policy, which the API server loads
+                                    asynchronously and which has no status that says so.
+                                    Set it on the last object of a set, the binding: a
+                                    policy acts only once its binding exists, and a probe on
+                                    the policy holds its own binding back. The validation
+                                    harness ignores it.
                                   '';
                                 };
                                 novalidate = lib.mkOption {

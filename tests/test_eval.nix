@@ -33,6 +33,29 @@ let
           data.key = "value";
         };
         kubernetes.objects.postgres.ConfigMap.ungated.data.key = "value";
+        kubernetes.objects.postgres.ConfigMap.probed = {
+          ekn.probe = {
+            object = {
+              apiVersion = "v1";
+              kind = "ConfigMap";
+              metadata.name = "kappy-probe";
+            };
+            denied = "probed";
+          };
+          data.key = "value";
+        };
+      }
+    ];
+  };
+  easyProbeWithBoth = (import ../. { }).lib.easykubenix {
+    inherit pkgs;
+    modules = [
+      {
+        kubernetes.objects.postgres.ConfigMap.both.ekn.probe = {
+          object.kind = "ConfigMap";
+          matches.data.key = "value";
+          denied = "both";
+        };
       }
     ];
   };
@@ -1041,6 +1064,7 @@ in
   # every object -- and, while the alias warned on read, printed a deprecation
   # notice for a configuration that never wrote the old name.
   afterRenders = easyAfter.config.kubernetes.generated;
+  probeWithBoth = easyProbeWithBoth.config.kubernetes.generated;
 
   eknSidecarKeys = map (
     object: builtins.attrNames object.ekn
