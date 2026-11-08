@@ -1,3 +1,33 @@
+# Default-deny at the top level: a new file or directory here stays
+# untracked until it is named below.
+/*
+!/.assets/
+!/.envrc
+!/.github/
+!/.gitignore
+!/LICENSE
+!/README.md
+!/TODO.md
+!/checks.nix
+!/ci/
+!/default.nix
+!/demo/
+!/design/
+!/docs/
+!/easykubenix/
+!/ekn/
+!/eval.nix
+!/flake.lock
+!/flake.nix
+!/mypy.ini
+!/nix/
+!/pytest.ini
+!/ruff-strict.toml
+!/ruff.toml
+!/shell.nix
+!/tests/
+!/tools/
+
 result
 result-*
 /docs/_build
