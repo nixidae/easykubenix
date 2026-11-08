@@ -34,7 +34,7 @@ import re
 from typing import Any
 
 from vivarium_runner import Machine, MachineError, Machines
-from vivarium_runner.cluster import bring_up, get_json, kubectl, wait_for_pods
+from vivarium_k8s import bring_up, get_json, kubectl, wait_for_pods
 
 # An apply is seconds of work against an idle API server.  This is not that
 # bound: the first one waits for a CRD to become Established and for a
