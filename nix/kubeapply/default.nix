@@ -14,9 +14,10 @@
 # and no tap device, and the whole test is a derivation that passes or fails.
 #
 # `ekn` runs *inside* the guest. The guest's store view holds its closure
-# and everything in `settings`, so the program and the manifests are
-# already there -- nothing is copied in, and nothing is fetched. `settings` carries their store paths,
-# which is what makes the derivation depend on them.
+# and the paths `vivarium.lateClosure` names, so the program and the
+# manifests are already there -- nothing is copied in, and nothing is
+# fetched. `settings` carries their store paths, which is what makes the
+# derivation depend on them.
 #
 # Deliberately outside `checks.all`. A control plane under UML is minutes of
 # CPU, and CI builds `all` on every change; see ../default.nix.
@@ -93,6 +94,15 @@ vivarium.mkTest {
     after = [ "boot" ];
   };
   nodes.cp = node;
+  defaults =
+    { settings, ... }:
+    {
+      vivarium.lateClosure = [
+        settings.ekn
+        settings.resourcePriority
+      ]
+      ++ lib.attrValues settings.manifests;
+    };
   settings = {
     ekn = lib.getExe' evals.gen1.passthru.ekn "ekn";
     resourcePriority = "${resourcePriorityFile}";
