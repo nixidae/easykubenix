@@ -71,7 +71,6 @@ let
   # More memory than the three-node test's control plane: this one also runs
   # the workload, and `ekn` itself.
   node = {
-    imports = [ vivariumSet.nixosModules.k8s ];
     services.vivarium-k8s = {
       enable = true;
       role = "control-plane";
@@ -88,6 +87,7 @@ let
 in
 vivarium.mkTest {
   name = "kubeapply";
+  vivarium.recipes.kubernetes.enable = true;
   phases.test = {
     script = ./test.py;
     after = [ "boot" ];
