@@ -22,6 +22,8 @@
   # everything it propagates.
   eknDevEnv,
   nixvenv,
+  # The `vivarium` CLI, for the `kubeapply` guest test: `ctl`, `monitor`, `run`.
+  vivarium,
 }:
 let
   # Sphinx is only a command-line tool here. The docs are hand-written Markdown
@@ -55,5 +57,6 @@ mkShell {
     # the tests that exercise it need one on PATH.
     sops
     age
+    vivarium
   ];
 }

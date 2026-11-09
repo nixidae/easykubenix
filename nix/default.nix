@@ -338,6 +338,7 @@ in
     inherit (pkgs.python3Packages) sphinx myst-parser furo;
     inherit (root.passthru) eknDevEnv;
     inherit ((import sources.nixvenv { inherit pkgs; }).lib) nixvenv;
+    inherit ((import sources.vivarium { inherit pkgs sources; }).packages) vivarium;
   };
 
   checks = examples.checks // {
