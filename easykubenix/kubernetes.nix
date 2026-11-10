@@ -111,6 +111,39 @@ let
   # conversion pass only when one of the two is set. The pass is a deep walk over
   # every object, so it is not free.
   needsMarkerPass = cfg.generators != [ ] || cfg.transformers != [ ];
+
+  # `kubernetes.helmHooks`. Not a transformer: any transformer turns on the
+  # marker pass above for every object, and the hash must see the spec after it.
+  hooksOf =
+    object:
+    let
+      value = object.metadata.annotations."helm.sh/hook" or null;
+    in
+    if value == null then [ ] else map lib.trim (lib.splitString "," value);
+  isKeptHook =
+    object:
+    let
+      hooks = hooksOf object;
+    in
+    hooks == [ ] || lib.any (hook: lib.elem hook cfg.helmHooks.applyEvents) hooks;
+  # A Job name is also its pods' `job-name` label value: 63 characters at most.
+  hookSuffixLength = 8;
+  renameHookJob =
+    object:
+    if object.kind == "Job" && hooksOf object != [ ] then
+      lib.recursiveUpdate object {
+        metadata.name = "${
+          lib.removeSuffix "-" (builtins.substring 0 (63 - hookSuffixLength - 1) object.metadata.name)
+        }-${
+          builtins.substring 0 hookSuffixLength (
+            builtins.hashString "sha256" (
+              builtins.unsafeDiscardStringContext (builtins.toJSON (object.spec or { }))
+            )
+          )
+        }";
+      }
+    else
+      object;
   generatedWithEkn = lib.pipe cfg.objects (
     [
       # Convert kubernetes.objects.namespace.kind.name into a list of objects
@@ -147,6 +180,10 @@ let
     # Change any marked attribute set that a generator or a transformer made
     # back into a list. See `needsMarkerPass` above.
     ++ lib.optional needsMarkerPass (map (lib.walkWithPath lib.kubeAttrsToLists))
+    ++ lib.optionals cfg.helmHooks.enable [
+      (lib.filter isKeptHook)
+      (map renameHookJob)
+    ]
     ++ [
       (map stripEmptyTopLevelLabelsAnnotations)
       # `generatedWithEkn` is published with `ekn` attached, so a deprecated
@@ -1021,6 +1058,41 @@ in
       type = lib.types.listOf (lib.types.functionTo lib.types.bool);
       default = [ ];
       description = "List of functions that filter objects";
+    };
+
+    helmHooks = {
+      enable = lib.mkOption {
+        type = lib.types.bool;
+        default = true;
+        description = ''
+          Treat Helm hook objects (`helm.sh/hook`) for an apply with no Helm
+          release:
+
+          - a hook that lists none of `applyEvents` (test, delete, rollback)
+            is dropped. Applied as a plain object, it would run at apply time;
+          - a kept hook Job is renamed `<name>-<8 hex of sha256 of its spec>`.
+            A chart upgrade that changes the Job makes a new object instead of
+            failing on the immutable pod template, and a prune removes the old
+            one.
+
+          This is a good-enough remediation, not Helm's hook lifecycle. Hook
+          order is lost: a `pre-*` hook runs beside the workloads, not before
+          them. Hook weights and delete policies are ignored. A Job runs again
+          only when its spec changes, or after its `ttlSecondsAfterFinished`
+          deletes it.
+        '';
+      };
+
+      applyEvents = lib.mkOption {
+        type = lib.types.listOf lib.types.str;
+        default = [
+          "pre-install"
+          "post-install"
+          "pre-upgrade"
+          "post-upgrade"
+        ];
+        description = "Hook events an apply stands for. A hook object with none of them is dropped.";
+      };
     };
 
     objectChecks = lib.mkOption {

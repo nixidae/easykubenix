@@ -65,6 +65,32 @@ as it requires running `helm template` during Nix evaluation.
 
 See the demo for examples
 
+#### Helm hooks
+
+No Helm release exists, so nothing runs a hook object (`helm.sh/hook`) at
+its lifecycle event. `kubernetes.helmHooks` (on by default) applies two
+rules to every object:
+
+- A hook with none of `applyEvents` (`pre-install`, `post-install`,
+  `pre-upgrade`, `post-upgrade`) is dropped. A test, delete or rollback hook
+  applied as a plain object would run at apply time.
+- A kept hook Job is renamed `<name>-<8 hex of sha256 of its spec>`. A chart
+  upgrade that changes the Job creates a new Job instead of failing on
+  `spec.template: field is immutable`. A prune removes the old one.
+
+This is a good-enough remediation, not Helm's hook lifecycle:
+
+- Hook order is lost. A `pre-*` hook Job runs beside the workloads, not
+  before them. Hook weights and delete policies are ignored.
+- A kept hook Job runs once, and again when its spec changes. A Job with
+  `ttlSecondsAfterFinished` also runs again on the first apply after
+  Kubernetes deletes it.
+- The name changes with the chart. Select a hook Job by its labels.
+
+Argo CD maps install and upgrade hooks to PreSync and PostSync phases. It
+waits for each phase, and it creates each hook again on every sync. A phase
+model like that is the complete answer here too.
+
 ### Inspecting manifests without CRDs
 
 Use `ekn render --skip-crds` to omit CRD schemas from YAML output.
