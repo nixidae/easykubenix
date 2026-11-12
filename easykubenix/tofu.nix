@@ -35,18 +35,25 @@ let
   # block is deep. This is the same recursive type nixpkgs' `formats.json`
   # builds, declared here because the module wants no file-format machinery
   # around it.
+  #
+  # The description is set by hand: derived, it reads the element types,
+  # which hold `inner`, and recurses forever (option docs, type errors).
   valueType =
     with lib.types;
     let
-      inner = nullOr (oneOf [
-        bool
-        int
-        float
-        str
-        path
-        (attrsOf inner)
-        (listOf inner)
-      ]);
+      inner =
+        nullOr (oneOf [
+          bool
+          int
+          float
+          str
+          path
+          (attrsOf inner)
+          (listOf inner)
+        ])
+        // {
+          description = "JSON value";
+        };
     in
     inner;
 

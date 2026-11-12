@@ -33,6 +33,14 @@ let
 
   unit = eval.config.deployment.tofuUnits.infra;
 
+  # Option docs and type errors read a type's description, and a merge never
+  # does: a recursive type whose description recurses still renders.
+  optionDescriptions = builtins.toJSON (
+    lib.mapAttrs (_: option: option.type.description) (
+      lib.filterAttrs (_: lib.isOption) eval.config.deployment.units.infra.instance.options.tofu
+    )
+  );
+
   expected = builtins.toJSON {
     output = {
       cluster_name.value = "\${random_pet.cluster.id}";
@@ -59,7 +67,7 @@ pkgs.runCommand "easykubenix-check-tofu-render"
     CHECKPOINT_DISABLE = "1";
     TF_IN_AUTOMATION = "1";
 
-    inherit expected;
+    inherit expected optionDescriptions;
     passAsFile = [ "expected" ];
   }
   ''
