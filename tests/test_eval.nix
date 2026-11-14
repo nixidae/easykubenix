@@ -1098,6 +1098,7 @@ in
       };
     };
   rootConfig = rootEnv [ ];
+  rootWithClusterUid = rootEnv [ { units.cluster.kubernetes.ekn.clusterUid = "0e6c7c8a-2476-4532-b4e4-3f40e6083dc3"; } ];
   rootTofuChain =
     (rootEnv [
       {

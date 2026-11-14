@@ -14,10 +14,12 @@ from kappy.apply import DEFAULT_BARRIER_PRIORITY
 
 from ekn.engine import FIELD_MANAGER
 from ekn.eval import (
+    Identity,
     Instance,
     evaluate_file,
     evaluate_generated_with_spec,
     evaluate_gitops_manifests,
+    evaluate_identity,
     evaluate_kubeapply_config,
     realise_attr,
 )
@@ -582,6 +584,14 @@ class TestRoot:
             assert isinstance(metadata, dict)
             names.append(metadata["name"])
         assert names == ["day2"]
+
+    async def test_a_roots_identity_is_its_clusters(self) -> None:
+        identity = await evaluate_identity(Instance(NIX_TEST_FILE, attr_path="rootWithClusterUid"))
+        assert identity == Identity(environment="easykubenix", cluster_uid="0e6c7c8a-2476-4532-b4e4-3f40e6083dc3")
+
+    async def test_an_undeclared_cluster_uid_is_none(self) -> None:
+        identity = await evaluate_identity(Instance(NIX_TEST_FILE, attr_path="rootConfig"))
+        assert identity.cluster_uid is None
 
     async def test_ekn_refuses_to_guess_between_clusters(self) -> None:
         with pytest.raises(ValueError, match=r"cluster, other.*name one with --attr"):

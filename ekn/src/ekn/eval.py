@@ -1627,6 +1627,32 @@ class SchemaCheckConfig(BaseModel):
     environment: str | None
 
 
+@dataclass(frozen=True, slots=True)
+class Identity:
+    """Which cluster an instance is for: `ekn.environment` and `ekn.clusterUid`."""
+
+    environment: str
+    cluster_uid: str | None
+
+
+async def evaluate_identity(instance: Instance) -> Identity:
+    """The instance's environment name and declared cluster uid, and nothing else.
+
+    For a caller that must fence a cluster before it does anything that
+    needs a render: a lease, a status read. It forces two option values, so
+    it costs a fraction of `evaluate_kubeapply_config`. A root resolves to
+    its one Kubernetes unit, as everywhere else.
+    """
+    async with _evaluator() as eval_:
+        proxy = await _kubernetes_config(await _resolve_proxy(eval_, instance))
+        ekn_opts = proxy.attr("ekn")
+        cluster_uid = await ekn_opts.attr("clusterUid").to_python() if await ekn_opts.has_attr("clusterUid") else None
+        return Identity(
+            environment=str(await ekn_opts.attr("environment").to_python()),
+            cluster_uid=cast("str | None", cluster_uid),
+        )
+
+
 async def evaluate_schemacheck_config(
     instance: Instance,
     *,
@@ -1653,6 +1679,7 @@ async def evaluate_schemacheck_config(
 __all__ = [
     "GitOpsManifestsResult",
     "GitOpsTargetEntry",
+    "Identity",
     "Instance",
     "NixError",
     "SchemaCheckConfig",
@@ -1663,6 +1690,7 @@ __all__ = [
     "evaluate_flake_ekn",
     "evaluate_generated_with_spec",
     "evaluate_gitops_manifests",
+    "evaluate_identity",
     "evaluate_kubeapply_config",
     "evaluate_schemacheck_config",
     "evaluate_validation_config",
