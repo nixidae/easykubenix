@@ -16,6 +16,8 @@ from ekn.engine import FIELD_MANAGER
 from ekn.eval import (
     Identity,
     Instance,
+    _evaluator,
+    building_in,
     evaluate_file,
     evaluate_generated_with_spec,
     evaluate_gitops_manifests,
@@ -587,11 +589,27 @@ class TestRoot:
 
     async def test_a_roots_identity_is_its_clusters(self) -> None:
         identity = await evaluate_identity(Instance(NIX_TEST_FILE, attr_path="rootWithClusterUid"))
-        assert identity == Identity(environment="easykubenix", cluster_uid="0e6c7c8a-2476-4532-b4e4-3f40e6083dc3")
+        assert identity == Identity(
+            environment="easykubenix",
+            cluster_uid="0e6c7c8a-2476-4532-b4e4-3f40e6083dc3",
+            build_store="ssh-ng://nix@builds.example.invalid",
+        )
 
     async def test_an_undeclared_cluster_uid_is_none(self) -> None:
         identity = await evaluate_identity(Instance(NIX_TEST_FILE, attr_path="rootConfig"))
         assert identity.cluster_uid is None
+        assert identity.build_store is None
+
+    async def test_building_in_sends_builds_to_that_store(self) -> None:
+        # A dummy store builds nothing: the same derivation builds outside
+        # the block and fails inside it.
+        drv = '(derivation { name = "ekn-building-in"; system = builtins.currentSystem; builder = "/bin/sh"; args = [ "-c" "echo > $out" ]; }).outPath'
+        async with _evaluator() as eval_:
+            assert (await (await eval_.expr(drv)).realise_string()).startswith("/nix/store/")
+        with building_in("dummy://"):
+            async with _evaluator() as eval_:
+                with pytest.raises(NixError):
+                    await (await eval_.expr(drv + ' + "-2"')).realise_string()
 
     async def test_ekn_refuses_to_guess_between_clusters(self) -> None:
         with pytest.raises(ValueError, match=r"cluster, other.*name one with --attr"):

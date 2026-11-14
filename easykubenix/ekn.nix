@@ -180,6 +180,21 @@ in
       example = "acme-production";
     };
 
+    buildStore = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      example = "ssh-ng://nix@pynixd.example.org";
+      description = ''
+        A Nix store this environment offers to build in, such as the
+        cluster's own build cache. Offered, not forced: `ekn` reads it only
+        for a caller that asks (`ekn.eval.building_in`, which
+        solid-kubernetes' `solid` uses). Evaluation stays local; builds run
+        in this store, with the caller's credentials, and Nix copies back
+        each output ekn reads. Usually the same URI as `cacheTo`, whose push
+        then finds everything already there.
+      '';
+    };
+
     clusterUid = lib.mkOption {
       type = lib.types.nullOr (
         lib.types.strMatching "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"

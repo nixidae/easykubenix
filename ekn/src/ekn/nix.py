@@ -199,6 +199,7 @@ async def evaluator(
     verbosity: str = "warn",
     print_build_logs: bool = False,
     settings: Mapping[str, str] | None = None,
+    build_store: str | None = None,
 ) -> AsyncIterator[Evaluator]:
     """Open an `Evaluator`, and route its log to stderr while it is open.
 
@@ -207,13 +208,17 @@ async def evaluator(
     `print_build_logs`, warnings and errors without. A thread Nix starts for
     itself -- a substituter, a file transfer -- keeps records at the default
     level, which this sets to `verbosity` and never below warn.
+
+    `build_store`, a store URI, builds there instead: Nix's `--eval-store`
+    split, with this session's default store as the eval store.
     """
     _configure_process()
     level = max(LEVELS.index(verbosity), _WARN)
     set_default_verbosity(level)
     async with AsyncSession() as session:
         store = session.store()
-        state = session.eval(store, dict(settings) if settings else None)
+        builder = session.store(build_store) if build_store else None
+        state = session.eval(store, dict(settings) if settings else None, builder)
         await register_yaml_primops(state)
         printer = print_record if print_build_logs else print_warning
         async with session.forward(state, printer, level=level):

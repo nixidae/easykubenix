@@ -54,6 +54,7 @@ if TYPE_CHECKING:
 _log = structlog.get_logger()
 _VERBOSITY: ContextVar[str] = ContextVar("_verbosity", default="warn")
 _PRINT_BUILD_LOGS: ContextVar[bool] = ContextVar("_print_build_logs", default=False)
+_BUILD_STORE: ContextVar[str | None] = ContextVar("_build_store", default=None)
 
 
 _NonEmptyStr = Annotated[str, StringConstraints(min_length=1)]
@@ -310,6 +311,25 @@ class FlakeEknResult(BaseModel):
 
 
 @contextmanager
+def building_in(store_uri: str | None) -> Generator[None]:
+    """Build in `store_uri` for every `_evaluator()` opened inside this block.
+
+    Evaluation stays local; a build, an import from a derivation and a
+    `realise_string` run in that store, and Nix copies each output ekn reads
+    back to the local store. `None` builds locally, which is the default.
+
+    A caller opts in: `ekn.buildStore` offers a store, and nothing here reads
+    it. That needs a first evaluation, which a caller such as solid-kubernetes'
+    `solid` does through `evaluate_identity`.
+    """
+    token = _BUILD_STORE.set(store_uri)
+    try:
+        yield
+    finally:
+        _BUILD_STORE.reset(token)
+
+
+@contextmanager
 def verbose_session(verbosity: str, *, print_build_logs: bool) -> Generator[None]:
     """Turn up Nix's own logging for every `_evaluator()` opened inside
     this block -- real Nix build/eval progress that `nix run
@@ -491,6 +511,7 @@ async def _evaluator() -> AsyncGenerator[nix.Evaluator]:
         verbosity=_VERBOSITY.get(),
         print_build_logs=_PRINT_BUILD_LOGS.get(),
         settings=_profiler_eval_settings(),
+        build_store=_BUILD_STORE.get(),
     ) as eval_:
         yield eval_
 
@@ -1633,6 +1654,8 @@ class Identity:
 
     environment: str
     cluster_uid: str | None
+    #: `ekn.buildStore`: a store this environment offers to build in.
+    build_store: str | None = None
 
 
 async def evaluate_identity(instance: Instance) -> Identity:
@@ -1647,9 +1670,11 @@ async def evaluate_identity(instance: Instance) -> Identity:
         proxy = await _kubernetes_config(await _resolve_proxy(eval_, instance))
         ekn_opts = proxy.attr("ekn")
         cluster_uid = await ekn_opts.attr("clusterUid").to_python() if await ekn_opts.has_attr("clusterUid") else None
+        build_store = await ekn_opts.attr("buildStore").to_python() if await ekn_opts.has_attr("buildStore") else None
         return Identity(
             environment=str(await ekn_opts.attr("environment").to_python()),
             cluster_uid=cast("str | None", cluster_uid),
+            build_store=cast("str | None", build_store),
         )
 
 
@@ -1684,6 +1709,7 @@ __all__ = [
     "NixError",
     "SchemaCheckConfig",
     "SopsAgeIdentity",
+    "building_in",
     "evaluate_file",
     "evaluate_file_multi",
     "evaluate_flake",
