@@ -311,7 +311,7 @@ class FlakeEknResult(BaseModel):
 
 
 @contextmanager
-def building_in(store_uri: str | None) -> Generator[None]:
+def building_in(store_uri: str | None, trusted_keys: Iterable[str] = ()) -> Generator[None]:
     """Build in `store_uri` for every `_evaluator()` opened inside this block.
 
     Evaluation stays local; a build, an import from a derivation and a
@@ -321,7 +321,13 @@ def building_in(store_uri: str | None) -> Generator[None]:
     A caller opts in: `ekn.buildStore` offers a store, and nothing here reads
     it. That needs a first evaluation, which a caller such as solid-kubernetes'
     `solid` does through `evaluate_identity`.
+
+    `trusted_keys` are the store's signing keys, `ekn.buildStoreKeys`: the
+    copy back checks signatures, and Nix gives that copy no switch. They stay
+    trusted for the rest of the process (`nix.trust_keys`).
     """
+    if store_uri is not None:
+        nix.trust_keys(trusted_keys)
     token = _BUILD_STORE.set(store_uri)
     try:
         yield
@@ -1663,6 +1669,8 @@ class Identity:
     cluster_uid: str | None
     #: `ekn.buildStore`: a store this environment offers to build in.
     build_store: str | None = None
+    #: `ekn.buildStoreKeys`: the public keys that store signs with.
+    build_store_keys: tuple[str, ...] = ()
 
 
 async def evaluate_identity(instance: Instance) -> Identity:
@@ -1678,10 +1686,12 @@ async def evaluate_identity(instance: Instance) -> Identity:
         ekn_opts = proxy.attr("ekn")
         cluster_uid = await ekn_opts.attr("clusterUid").to_python() if await ekn_opts.has_attr("clusterUid") else None
         build_store = await ekn_opts.attr("buildStore").to_python() if await ekn_opts.has_attr("buildStore") else None
+        keys = await ekn_opts.attr("buildStoreKeys").to_python() if await ekn_opts.has_attr("buildStoreKeys") else []
         return Identity(
             environment=str(await ekn_opts.attr("environment").to_python()),
             cluster_uid=cast("str | None", cluster_uid),
             build_store=cast("str | None", build_store),
+            build_store_keys=tuple(str(key) for key in cast("list[object]", keys)),
         )
 
 

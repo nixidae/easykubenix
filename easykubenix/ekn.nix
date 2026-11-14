@@ -195,6 +195,19 @@ in
       '';
     };
 
+    buildStoreKeys = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [ ];
+      example = [ "nix-cache-1:7gm/+1Uow9GYSpeBl7MLooPKdWVbuciAaWgsHUgAXoQ=" ];
+      description = ''
+        The public keys `buildStore` signs with. Nix checks the signature of
+        every output it copies back from that store and offers no switch for
+        it, so a caller that builds there trusts these keys for the run. A
+        machine needs no configuration of its own: the local daemon receives
+        them with the client's options.
+      '';
+    };
+
     clusterUid = lib.mkOption {
       type = lib.types.nullOr (
         lib.types.strMatching "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"

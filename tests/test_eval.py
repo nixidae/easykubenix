@@ -9,6 +9,7 @@ import anyio
 import pytest
 from huggorm.attrpath import AttrPathError
 from huggorm.errors import NixError
+from huggorm_bindings import get_setting
 from json_at import at, list_at, mapping_at
 from kappy.apply import DEFAULT_BARRIER_PRIORITY
 
@@ -593,6 +594,7 @@ class TestRoot:
             environment="easykubenix",
             cluster_uid="0e6c7c8a-2476-4532-b4e4-3f40e6083dc3",
             build_store="ssh-ng://nix@builds.example.invalid",
+            build_store_keys=("builds-1:7gm/+1Uow9GYSpeBl7MLooPKdWVbuciAaWgsHUgAXoQ=",),
         )
 
     async def test_an_undeclared_cluster_uid_is_none(self) -> None:
@@ -610,6 +612,13 @@ class TestRoot:
             async with _evaluator() as eval_:
                 with pytest.raises(NixError):
                     await (await eval_.expr(drv + ' + "-2"')).realise_string()
+
+    async def test_building_in_trusts_the_build_store_s_keys(self) -> None:
+        # The copy back checks signatures, and Nix gives it no switch.
+        key = "ekn-building-in-1:7gm/+1Uow9GYSpeBl7MLooPKdWVbuciAaWgsHUgAXoQ="
+        with building_in("dummy://", [key]):
+            pass
+        assert key in (get_setting("trusted-public-keys") or "").split()
 
     async def test_ekn_refuses_to_guess_between_clusters(self) -> None:
         with pytest.raises(ValueError, match=r"cluster, other.*name one with --attr"):

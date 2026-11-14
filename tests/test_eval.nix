@@ -1103,6 +1103,7 @@ in
       units.cluster.kubernetes.ekn = {
         clusterUid = "0e6c7c8a-2476-4532-b4e4-3f40e6083dc3";
         buildStore = "ssh-ng://nix@builds.example.invalid";
+        buildStoreKeys = [ "builds-1:7gm/+1Uow9GYSpeBl7MLooPKdWVbuciAaWgsHUgAXoQ=" ];
       };
     }
   ];

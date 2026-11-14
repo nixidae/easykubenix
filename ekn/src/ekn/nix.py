@@ -27,6 +27,7 @@ from huggorm import (
     load_config,
     parse_flake_ref,
     set_default_verbosity,
+    set_setting,
 )
 from huggorm.attrpath import auto_call, parse_attr_path, select_attr_path
 
@@ -34,7 +35,7 @@ from ekn.nixyaml import register_yaml_primops
 from ekn.storecheck import STORE_DIR
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Mapping
+    from collections.abc import AsyncIterator, Iterable, Mapping
 
     from huggorm import AsyncEvalState, AsyncStore, AsyncValue, CapturedLogs, LogRecord
     from huggorm.jsonprimop import JsonValue
@@ -180,6 +181,23 @@ class Evaluator:
         return self.session.capture(self.state, level=_WARN)
 
 
+def trust_keys(keys: Iterable[str]) -> None:
+    """Trust signatures by these public keys, for the rest of the process.
+
+    `extra-trusted-public-keys`, as a line of nix.conf. A daemon store
+    receives it with the client's options, and pynixd checks a path it adds
+    against them (nixidae/nixidae#236): what a build in another store
+    (`building_in`) copies back needs its key trusted here.
+
+    Process-wide, as Nix's settings are, and additive: nothing a block can
+    take back, so a caller trusts only keys an environment it acts on names.
+    """
+    keys = [key for key in keys if key]
+    if keys:
+        _configure_process()
+        set_setting("extra-trusted-public-keys", " ".join(keys))
+
+
 @asynccontextmanager
 async def session(*, verbosity: str = "warn") -> AsyncIterator[AsyncSession]:
     """A session for store work alone, such as a closure copy.
@@ -241,4 +259,5 @@ __all__ = [
     "print_warning",
     "session",
     "store_path",
+    "trust_keys",
 ]
