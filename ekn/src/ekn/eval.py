@@ -1457,7 +1457,7 @@ class UnrealisedPathsError(RuntimeError):
     """The push was refused because this machine does not hold every path."""
 
 
-async def _refuse_unrealised(source: PathChecker, paths: list[str]) -> None:
+async def _refuse_unrealised(source: PathChecker, paths: list[str], dest: PathChecker | None = None) -> list[str]:
     """Stop before a copy that would silently move a smaller set.
 
     A path the manifest names as text is not necessarily on this machine.
@@ -1469,10 +1469,17 @@ async def _refuse_unrealised(source: PathChecker, paths: list[str]) -> None:
     Refusing is the point. A push that followed Nix string context did not
     have these paths in its set at all, so it reported success having moved
     nothing a node needs.
+
+    A path the destination already holds is not missing: a build in that
+    store (`building_in`) leaves it there and nowhere else. Returns the
+    paths this machine holds, which are the ones to copy.
     """
-    missing = [path for path in paths if not await source.is_valid_path(nix.store_path(path))]
+    local = [path for path in paths if await source.is_valid_path(nix.store_path(path))]
+    missing = [path for path in paths if path not in local]
+    if dest is not None:
+        missing = [path for path in missing if not await dest.is_valid_path(nix.store_path(path))]
     if not missing:
-        return
+        return local
     listed = "\n".join(f"  {path}" for path in missing)
     raise UnrealisedPathsError(
         f"the manifest names {len(missing)} store path(s) this machine does not have, "
@@ -1521,7 +1528,7 @@ async def push_closure_to_store(  # noqa: PLR0913 -- tracked complexity/arg-coun
         async with nix.session(verbosity=_VERBOSITY.get()) as session:
             source = session.store()
             dest = session.store(to)
-            await _refuse_unrealised(source, paths)
+            paths = await _refuse_unrealised(source, paths, dest)
             count, nar_bytes = await _closure_size(source, paths)
             # **`closure_` on both, because neither is the size of the
             # transfer.** They measure what has to be *present* on the

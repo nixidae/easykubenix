@@ -124,3 +124,15 @@ class TestRefusingAnUnrealisedPush:
         assert _p("b", "nodeEnv") in message
         assert _p("a", "one") not in message, "a path that is here is not the reader's problem"
         assert "nixkube.discardStringContext" in message
+
+    async def test_a_path_the_destination_holds_is_not_missing(self) -> None:
+        # Built in the destination (`building_in`): there, and not here.
+        paths = [_p("a", "one"), _p("b", "built-there")]
+        here = self._Store({_p("a", "one")})
+        there = self._Store({_p("b", "built-there")})
+        assert await _refuse_unrealised(here, paths, there) == [_p("a", "one")]
+
+    async def test_a_path_in_neither_store_still_refuses(self) -> None:
+        paths = [_p("a", "one"), _p("b", "nowhere")]
+        with pytest.raises(UnrealisedPathsError):
+            await _refuse_unrealised(self._Store({_p("a", "one")}), paths, self._Store(set()))
