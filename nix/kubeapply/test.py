@@ -120,7 +120,8 @@ async def apply(  # noqa: PLR0913 -- one call site per check, and each argument 
         command += f" --ready-seconds {ready_seconds}"
     if converge:
         command += " --converge"
-    rc, out = await cp.execute(command, timeout=APPLY_TIMEOUT)
+    done = await cp.execute(f"{command} 2>&1", timeout=APPLY_TIMEOUT)
+    rc, out = done.returncode, done.stdout
     print(out, flush=True)
     if fails and rc == 0:
         raise MachineError(f"[cp] {generation} applied, and it must not have:\n{out}")
@@ -507,7 +508,7 @@ async def check_probe(cp: Machine, settings: dict[str, Any]) -> None:
     # The error arrives wrapped at the terminal width.
     if "MutatingAdmissionPolicyBinding/ekn-probe did not come into effect within 20s" not in " ".join(out.split()):
         raise MachineError("the failed apply does not name the binding and its bound")
-    rc, _ = await cp.execute(f"kubectl get deployment mutated --namespace {namespace}")
+    rc = (await cp.execute(f"kubectl get deployment mutated --namespace {namespace}")).returncode
     expect("whether the held Deployment was sent", rc != 0, True)
 
     out = await apply(cp, settings, "probed", environment, ready_seconds=120)
@@ -515,7 +516,7 @@ async def check_probe(cp: Machine, settings: dict[str, Any]) -> None:
         raise MachineError("the apply did not probe the binding")
     mutated = await get_json(cp, f"get deployment mutated --namespace {namespace}")
     expect("the policy's label on the Deployment", mutated["metadata"]["labels"].get(label), "yes")
-    rc, _ = await cp.execute(f"kubectl get deployment kappy-probe --namespace {namespace}")
+    rc = (await cp.execute(f"kubectl get deployment kappy-probe --namespace {namespace}")).returncode
     expect("whether the probe's dry-run stored its object", rc != 0, True)
     print("[kubeapply] the probe held the Deployment until the policy acted", flush=True)
 
