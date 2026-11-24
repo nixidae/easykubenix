@@ -29,17 +29,19 @@ import json
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+import anyio
 import kr8s
 import structlog
-from kappy.apply import CLUSTER_SCOPED, KindNotServedError, ObjectKey, build_object
+from kappy.apply import CLUSTER_SCOPED, KindNotServedError, ObjectKey, build_object, list_when_ready
 
 from ekn.engine import ENVIRONMENT_LABEL, UNIT_LABEL
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Mapping
+    from collections.abc import Awaitable, Callable, Iterable, Mapping
 
     from kappy.apply import Manifest
     from kr8s.asyncio import Api
+    from kr8s.asyncio.objects import APIObject
 
 _log = structlog.get_logger()
 
@@ -118,6 +120,15 @@ A 403 costs three reauthentication attempts inside `kr8s.Api.call_api`
 before it is raised, so a denied kind is slow as well as empty.
 """
 
+SWEEP_RETRY_SECONDS = 300.0
+"""How long one sweep, over every kind, keeps retrying a 429 or 503.
+
+A watch cache answers `resourceVersion=0` with 429 "storage is
+(re)initializing" while it rebuilds. On a 3-apiserver cluster one pass got
+a 429 on many CRD-backed kinds and a pass minutes later got none, and three
+runs over ~20 minutes failed on it (nixidae/nixidae#1023).
+"""
+
 
 def _managers(metadata: Mapping[str, Any]) -> frozenset[str]:
     """Who owns part of the object proper.
@@ -184,6 +195,8 @@ async def sweep(
     kinds: Iterable[tuple[str, str]],
     *,
     selector: str | None = None,
+    sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
+    clock: Callable[[], float] = anyio.current_time,
 ) -> dict[ObjectKey, LiveObject]:
     """One metadata LIST per kind, as `(namespace, kind, name)` records.
 
@@ -199,18 +212,24 @@ async def sweep(
     of this very run are not Established yet, and that is the ordinary state
     rather than a failure. Every consumer answers "no record" the same way it
     answers "not swept": by doing the work.
+
+    A 429 or 503 is listed again (`kappy.apply.list_when_ready`) until
+    `SWEEP_RETRY_SECONDS` after the sweep began, and then raised.
     """
     live: dict[ObjectKey, LiveObject] = {}
     params = dict(CACHED_LIST)
     if selector:
         params["labelSelector"] = selector
+    deadline = clock() + SWEEP_RETRY_SECONDS
     for kind, api_version in sorted(set(kinds)):
         try:
             cls = type(await build_object({"kind": kind, "apiVersion": api_version}, api))
         except KindNotServedError:
             _log.debug("not sweeping unserved kind", kind=kind, api_version=api_version)
             continue
-        try:
+
+        # `Any`: a JSON body of no fixed shape, read defensively below.
+        async def listed(cls: type[APIObject] = cls) -> Any:
             async with api.call_api(
                 method="GET",
                 version=cls.version,
@@ -218,7 +237,10 @@ async def sweep(
                 params=params,
                 headers={"Accept": ACCEPT_METADATA},
             ) as response:
-                payload: Any = response.json()
+                return response.json()
+
+        try:
+            payload: Any = await list_when_ready(listed, deadline=deadline, kind=kind, sleep=sleep, clock=clock)
         except kr8s.ServerError as exc:
             status = exc.response.status_code if exc.response is not None else None
             if status not in _UNSWEEPABLE:
@@ -367,6 +389,7 @@ __all__ = [
     "CACHED_LIST",
     "HASH_ANNOTATION",
     "OUR_MANAGERS",
+    "SWEEP_RETRY_SECONDS",
     "ForeignOwner",
     "LiveObject",
     "canonical_json",

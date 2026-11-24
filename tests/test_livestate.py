@@ -7,17 +7,19 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, ClassVar
 
+import httpx
 import kr8s
 import pytest
 
 # The same API server double the apply suite uses, so one description of a
 # cluster serves the sweep, the apply and the prune.
-from kappy.apply import ObjectKey
+from kappy.apply import RETRY_JITTER, ObjectKey
 from kappy.testing import FakeApi
 
 from ekn.livestate import (
     ACCEPT_METADATA,
     HASH_ANNOTATION,
+    SWEEP_RETRY_SECONDS,
     ForeignOwner,
     LiveObject,
     canonical_json,
@@ -322,6 +324,90 @@ class TestTheSweep:
         await sweep(api.as_api(), [*KINDS, *KINDS])
 
         assert api.swept == ["VerticalPodAutoscaler"]
+
+
+def initializing(retry_after: int | None = None) -> kr8s.ServerError:
+    """The answer a watch cache gives to `resourceVersion=0` while it rebuilds."""
+    body: dict[str, JsonValue] = {"kind": "Status", "message": "storage is (re)initializing", "code": 429}
+    if retry_after is not None:
+        body["details"] = {"retryAfterSeconds": retry_after}
+    return kr8s.ServerError(
+        "storage is (re)initializing",
+        response=httpx.Response(429, json=body, request=httpx.Request("GET", "http://api/x")),
+    )
+
+
+class _Clock:
+    def __init__(self) -> None:
+        self.now = 0.0
+        self.slept: list[float] = []
+
+    def __call__(self) -> float:
+        return self.now
+
+    async def sleep(self, seconds: float) -> None:
+        self.slept.append(seconds)
+        self.now += seconds
+
+
+class TestAWatchCacheThatIsNotReady:
+    """429 "storage is (re)initializing" is retried, not fatal. nixidae/nixidae#1023."""
+
+    async def test_it_lists_again_and_the_wait_grows(self) -> None:
+        clock = _Clock()
+        api = FakeApi(
+            resources=[VPA],
+            listed=[ObjectKey("default", "VerticalPodAutoscaler", "vpa")],
+            refusals={"VerticalPodAutoscaler": [initializing(retry_after=1), initializing(), initializing()]},
+        )
+
+        state = await sweep(api.as_api(), KINDS, sleep=clock.sleep, clock=clock)
+
+        assert list(state) == [ObjectKey("default", "VerticalPodAutoscaler", "vpa")]
+        assert api.swept == ["VerticalPodAutoscaler"] * 4
+        # The server's 1 s, then the curve's 2 s and 4 s; jitter only adds.
+        for slept, floor in zip(clock.slept, [1.0, 2.0, 4.0], strict=True):
+            assert floor <= slept <= floor * (1.0 + RETRY_JITTER)
+
+    async def test_the_server_asking_for_longer_is_honoured(self) -> None:
+        clock = _Clock()
+        api = FakeApi(resources=[VPA], refusals={"VerticalPodAutoscaler": [initializing(retry_after=30)]})
+
+        await sweep(api.as_api(), KINDS, sleep=clock.sleep, clock=clock)
+
+        assert 30.0 <= clock.slept[0] <= 30.0 * (1.0 + RETRY_JITTER)
+
+    async def test_it_gives_up_at_the_bound(self) -> None:
+        clock = _Clock()
+        api = FakeApi(resources=[VPA], refusals={"VerticalPodAutoscaler": [initializing() for _ in range(100)]})
+
+        with pytest.raises(kr8s.ServerError):
+            await sweep(api.as_api(), KINDS, sleep=clock.sleep, clock=clock)
+
+        assert clock.slept
+        assert clock.now <= SWEEP_RETRY_SECONDS
+
+    async def test_the_bound_is_for_the_whole_sweep(self) -> None:
+        """Per kind, seventy refusing kinds would keep a run waiting for hours."""
+        clock = _Clock()
+        asked = int(SWEEP_RETRY_SECONDS * 0.6)
+        api = FakeApi(
+            resources=[VPA, CRD],
+            refusals={
+                "CustomResourceDefinition": [initializing(retry_after=asked)],
+                "VerticalPodAutoscaler": [initializing(retry_after=asked)],
+            },
+        )
+
+        with pytest.raises(kr8s.ServerError):
+            await sweep(
+                api.as_api(),
+                [*KINDS, ("CustomResourceDefinition", "apiextensions.k8s.io/v1")],
+                sleep=clock.sleep,
+                clock=clock,
+            )
+
+        assert len(clock.slept) == 1
 
 
 class TestWhoOwnsTheObjectProper:
