@@ -29,10 +29,18 @@ The three answers a substituter can give stay three, because huggorm
 keeps them apart:
 
     present       is_valid_path -> True
-    absent        is_valid_path -> False   (InvalidPath from the query)
+                  or query_missing leaves it out of `unknown`
+    absent        query_missing names it in `unknown`
     cannot ask    NixError
 
 Measured 2026-09-17 against cache.nixos.org and an unroutable ssh-ng host.
+
+A store server with substituters of its own (pynixd and its R2 cold tier)
+holds a path it can fetch but does not have. `query_missing` on that store
+asks those substituters about the whole closure. Measured 2026-11-26 on sg1's
+pynixd: a path in R2 answers `will_substitute=1, unknown=0`, and a made-up
+path `unknown=1`. `query_substitutable_paths` is not the question: it skips a
+cache without `WantMassQuery` (`store-api.cc:526`), and it gives no references.
 One code path therefore covers `https`, `ssh-ng`, `s3` and `file`; a
 scheme-specific fetcher could only ask an HTTP substituter (nixkube #41).
 """
@@ -47,7 +55,7 @@ from typing import TYPE_CHECKING
 
 import anyio
 import structlog
-from huggorm import AsyncSession, StorePath
+from huggorm import AsyncSession, AsyncStore, StorePath
 from huggorm.errors import InvalidPath, NixError
 
 if TYPE_CHECKING:
@@ -164,12 +172,23 @@ async def huggorm_probe(substituters: Sequence[str]) -> AsyncIterator[Probe]:
     async with AsyncSession() as session:
         stores = {uri: session.store(uri) for uri in substituters}
 
+        async def fetchable(store: AsyncStore, base_name: str) -> tuple[set[str] | None, None]:
+            """A path this store would fetch: present, its unfetchable closure members as its references.
+
+            Those members go back into the walk, so another substituter may still supply them.
+            """
+            missing = await store.query_missing([await store.parse_derived_path(f"{STORE_DIR}/{base_name}")])
+            unknown = {member.to_string() for member in missing.unknown()}
+            if base_name in unknown:
+                return None, None
+            return unknown, None
+
         async def probe(uri: str, base_name: str) -> tuple[set[str] | None, str | None]:
             store = stores[uri]
             path = StorePath(base_name)
             try:
                 if not await store.is_valid_path(path):
-                    return None, None
+                    return await fetchable(store, base_name)
                 info = await store.query_path_info(path)
             except InvalidPath:
                 return None, None
