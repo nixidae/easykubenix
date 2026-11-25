@@ -36,7 +36,7 @@ keeps them apart:
 Measured 2026-09-17 against cache.nixos.org and an unroutable ssh-ng host.
 
 A store server with substituters of its own (pynixd and its R2 cold tier)
-holds a path it can fetch but does not have. `query_missing` on that store
+holds a path it can fetch but does not have. `query_missing` on that daemon store
 asks those substituters about the whole closure. Measured 2026-11-26 on sg1's
 pynixd: a path in R2 answers `will_substitute=1, unknown=0`, and a made-up
 path `unknown=1`. `query_substitutable_paths` is not the question: it skips a
@@ -73,6 +73,11 @@ STORE_DIR = "/nix/store"
 STORE_PATH = re.compile(rf"{STORE_DIR}/([0-9abcdfghijklmnpqrsvwxyz]{{32}}-[A-Za-z0-9._+?=-]*)")
 
 DEFAULT_JOBS = 16
+
+# Only a daemon store sends queryMissing to the remote. Any other store
+# answers it from the deploying machine's own substituters: measured
+# 2026-11-26, an empty file:// cache passed hello from cache.nixos.org.
+FORWARDS_QUERY_MISSING = ("ssh-ng://", "unix://", "daemon")
 
 
 class StorePathsUnavailableError(RuntimeError):
@@ -188,6 +193,8 @@ async def huggorm_probe(substituters: Sequence[str]) -> AsyncIterator[Probe]:
             path = StorePath(base_name)
             try:
                 if not await store.is_valid_path(path):
+                    if not uri.startswith(FORWARDS_QUERY_MISSING):
+                        return None, None
                     return await fetchable(store, base_name)
                 info = await store.query_path_info(path)
             except InvalidPath:
