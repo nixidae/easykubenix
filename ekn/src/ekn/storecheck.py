@@ -41,6 +41,11 @@ asks those substituters about the whole closure. Measured 2026-11-26 on sg1's
 pynixd: a path in R2 answers `will_substitute=1, unknown=0`, and a made-up
 path `unknown=1`. `query_substitutable_paths` is not the question: it skips a
 cache without `WantMassQuery` (`store-api.cc:526`), and it gives no references.
+
+Only a remote store (`is_remote_store`) sends `query_missing` to its daemon.
+Any other store answers it from the deploying machine's own substituters:
+measured 2026-11-26, an empty `file://` cache passed hello from
+cache.nixos.org.
 One code path therefore covers `https`, `ssh-ng`, `s3` and `file`; a
 scheme-specific fetcher could only ask an HTTP substituter (nixkube #41).
 """
@@ -73,11 +78,6 @@ STORE_DIR = "/nix/store"
 STORE_PATH = re.compile(rf"{STORE_DIR}/([0-9abcdfghijklmnpqrsvwxyz]{{32}}-[A-Za-z0-9._+?=-]*)")
 
 DEFAULT_JOBS = 16
-
-# Only a daemon store sends queryMissing to the remote. Any other store
-# answers it from the deploying machine's own substituters: measured
-# 2026-11-26, an empty file:// cache passed hello from cache.nixos.org.
-FORWARDS_QUERY_MISSING = ("ssh-ng://", "unix://", "daemon")
 
 
 class StorePathsUnavailableError(RuntimeError):
@@ -193,7 +193,7 @@ async def huggorm_probe(substituters: Sequence[str]) -> AsyncIterator[Probe]:
             path = StorePath(base_name)
             try:
                 if not await store.is_valid_path(path):
-                    if not uri.startswith(FORWARDS_QUERY_MISSING):
+                    if not await store.is_remote_store():
                         return None, None
                     return await fetchable(store, base_name)
                 info = await store.query_path_info(path)
