@@ -335,11 +335,38 @@ def test_a_cel_rule_sees_schema_defaults(catalog: Catalog) -> None:
     assert report.cel.skipped == {}
 
 
+#: openperouter's L3VNI `spec.hostSession.localCIDRs`: at most one CIDR per family.
+L3VNI_RULES = [
+    {"rule": "self.all(c, isCIDR(c))", "message": "not a CIDR"},
+    {"rule": "self.filter(c, isCIDR(c) && cidr(c).ip().family() == 4).size() <= 1", "message": "two IPv4"},
+    {"rule": "self.filter(c, isCIDR(c) && cidr(c).ip().family() == 6).size() <= 1", "message": "two IPv6"},
+]
+
+
+@pytest.mark.parametrize(
+    ("cidrs", "messages"),
+    [
+        (["10.251.255.0/24", "fdc8:5f1a:9e30:ff::/64"], []),
+        (["10.0.0.0/24", "10.1.0.0/24"], ["CEL: two IPv4"]),
+        (["not-a-cidr"], ["CEL: not a CIDR"]),
+    ],
+)
+def test_a_cel_rule_uses_the_cidr_library(catalog: Catalog, cidrs: list[str], messages: list[str]) -> None:
+    crd = _crd({"localCIDRs": {"type": "array", "items": {"type": "string"}, "x-kubernetes-validations": L3VNI_RULES}})
+    add_rendered_crds(catalog, [crd])
+    report = check([_widget({"localCIDRs": cidrs})], catalog)
+    assert [(v.path, v.message) for v in report.violations] == [("/spec/localCIDRs", m) for m in messages]
+    assert report.cel.evaluated == 3
+    assert report.cel.skipped == {}
+
+
 @pytest.mark.parametrize(
     ("rule", "reason"),
     [
         ("self.min == oldSelf.min", "oldSelf"),
         ("quantity(self.min) > 0", "unsupported: quantity"),
+        ("quantity(string(self.min)).isGreaterThan(quantity('1'))", "unsupported: quantity"),
+        ("[self.min].all(m, string(m).lowerAscii() == '3')", "unsupported: lowerAscii"),
     ],
 )
 def test_a_cel_rule_it_cannot_judge_is_skipped(catalog: Catalog, rule: str, reason: str) -> None:

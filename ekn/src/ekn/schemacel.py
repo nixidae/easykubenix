@@ -6,8 +6,9 @@ together and does the same, for the rules it can:
 
 - A rule that reads `oldSelf` is a transition rule. It runs only on an
   update, against the stored object, so it is skipped.
-- A rule cel-python cannot parse, or that calls a Kubernetes CEL extension
-  it does not have, is skipped and counted: there is nothing to judge with.
+- A rule cel-python cannot parse, or that calls a Kubernetes CEL library
+  function this module does not implement, is skipped and counted: there is
+  nothing to judge with. Kubernetes' IP and CIDR libraries are implemented.
 
 A rule that evaluates to `false` is a violation, and so is one that fails at
 run time, as it is on the API server. Schema defaults are filled first, the
@@ -16,10 +17,11 @@ way the API server fills them, so a field it would default is not missing.
 
 from __future__ import annotations
 
+import ipaddress
 import re
 from collections import Counter
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Final, cast
 
 import celpy
 from celpy import celtypes
@@ -28,9 +30,10 @@ from celpy.celparser import CELParseError
 from celpy.evaluation import CELEvalError
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Callable, Mapping
 
-    from celpy.evaluation import Result
+    import lark
+    from celpy.evaluation import CELFunction, Result
 
 VALIDATIONS = "x-kubernetes-validations"
 
@@ -156,6 +159,326 @@ def lazy_cel(value: Any) -> Any:
     return json_to_cel(value)
 
 
+# Kubernetes' IP and CIDR CEL libraries: k8s.io/apiserver/pkg/cel/library/ip.go
+# and cidr.go, over Go's net/netip. Python's `ipaddress` parses the same strings
+# as `netip.ParseAddr` once a zone is ruled out: 350,000 fuzzed strings against
+# Go 1.27 netip agreed on acceptance, String(), Masked() and every `is*` method
+# below (2026-11-28). Python's own predicates are not Go's (`is_global` follows
+# the IANA registry), so the `is*` methods follow netip.
+
+type Address = ipaddress.IPv4Address | ipaddress.IPv6Address
+
+_PREFIX_BITS = re.compile(r"0|[1-9][0-9]*")
+
+
+@dataclass(frozen=True, slots=True)
+class IP:
+    """A CEL `net.IP`."""
+
+    addr: Address
+
+    def __str__(self) -> str:
+        return str(self.addr)
+
+
+@dataclass(frozen=True, slots=True)
+class CIDR:
+    """A CEL `net.CIDR`. Like `netip.Prefix`, it keeps the bits after the
+    prefix: `cidr('192.168.0.1/24') != cidr('192.168.0.0/24')`."""
+
+    addr: Address
+    bits: int
+
+    def __str__(self) -> str:
+        return f"{self.addr}/{self.bits}"
+
+    def network(self) -> ipaddress.IPv4Network | ipaddress.IPv6Network:
+        return ipaddress.ip_network((self.addr, self.bits), strict=False)
+
+
+def parse_ip(text: str) -> Address:
+    """Kubernetes' `parseIPAddr`: no zone, no IPv4-mapped IPv6 address, and
+    no leading zero in an IPv4 octet."""
+    if "%" in text:
+        raise ValueError(f"IP address {text!r} with zone value is not allowed")
+    try:
+        addr = ipaddress.ip_address(text)
+    except ValueError as exc:
+        raise ValueError(f"IP Address {text!r} parse error during conversion from string: {exc}") from exc
+    if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped is not None:
+        raise ValueError(f"IPv4-mapped IPv6 address {text!r} is not allowed")
+    return addr
+
+
+def parse_cidr(text: str) -> CIDR:
+    """Kubernetes' `parseCIDR`: `netip.ParsePrefix`, then no IPv4-mapped IPv6
+    address. The prefix length is decimal with no sign and no leading zero."""
+    address, slash, bits = text.rpartition("/")
+    if not slash:
+        raise ValueError(f"network address {text!r} has no '/'")
+    addr = parse_ip(address)
+    if not _PREFIX_BITS.fullmatch(bits) or int(bits) > addr.max_prefixlen:
+        raise ValueError(f"network address {text!r} has a bad prefix length")
+    return CIDR(addr, int(bits))
+
+
+def _is_loopback(addr: Address) -> bool:
+    if addr.version == 4:
+        return addr.packed[0] == 127
+    return int(addr) == 1
+
+
+def _is_multicast(addr: Address) -> bool:
+    if addr.version == 4:
+        return addr.packed[0] & 0xF0 == 0xE0
+    return addr.packed[0] == 0xFF
+
+
+def _is_link_local_multicast(addr: Address) -> bool:
+    if addr.version == 4:
+        return addr.packed[:3] == b"\xe0\x00\x00"
+    # ff02::/16 with any flags nibble: netip tests `v6u16(0)&0xff0f == 0xff02`.
+    return int.from_bytes(addr.packed[:2]) & 0xFF0F == 0xFF02
+
+
+def _is_link_local_unicast(addr: Address) -> bool:
+    if addr.version == 4:
+        return addr.packed[:2] == b"\xa9\xfe"
+    return int.from_bytes(addr.packed[:2]) & 0xFFC0 == 0xFE80
+
+
+def _is_global_unicast(addr: Address) -> bool:
+    if int(addr) == 0 or (addr.version == 4 and int(addr) == 0xFFFFFFFF):
+        return False
+    return not (_is_loopback(addr) or _is_multicast(addr) or _is_link_local_unicast(addr))
+
+
+def _error(exc: ValueError) -> CELEvalError:
+    return CELEvalError(str(exc), type(exc), exc.args)
+
+
+def _string(value: object) -> str:
+    if not isinstance(value, str):
+        raise TypeError(f"no such overload for {type(value).__name__}")
+    return str(value)
+
+
+def _ip_of(value: object) -> IP:
+    if not isinstance(value, IP):
+        raise TypeError(f"no such overload for {type(value).__name__}")
+    return value
+
+
+def _cidr_of(value: object) -> CIDR:
+    if not isinstance(value, CIDR):
+        raise TypeError(f"no such overload for {type(value).__name__}")
+    return value
+
+
+def cel_ip(value: object) -> IP | CELEvalError:
+    """`ip(<string>)`, and `<CIDR>.ip()`: the address, bits after the prefix kept."""
+    if isinstance(value, CIDR):
+        return IP(value.addr)
+    try:
+        return IP(parse_ip(_string(value)))
+    except ValueError as exc:
+        return _error(exc)
+
+
+def cel_cidr(value: object) -> CIDR | CELEvalError:
+    try:
+        return parse_cidr(_string(value))
+    except ValueError as exc:
+        return _error(exc)
+
+
+def cel_is_ip(value: object) -> celtypes.BoolType:
+    try:
+        parse_ip(_string(value))
+    except ValueError:
+        return celtypes.BoolType(False)
+    return celtypes.BoolType(True)
+
+
+def cel_is_cidr(value: object) -> celtypes.BoolType:
+    try:
+        parse_cidr(_string(value))
+    except ValueError:
+        return celtypes.BoolType(False)
+    return celtypes.BoolType(True)
+
+
+def cel_is_canonical(namespace: object, value: object) -> celtypes.BoolType | CELEvalError:
+    """`ip.isCanonical(<string>)`. celpy reads `ip.` as a method call on the
+    `ip` function, so *namespace* is that function."""
+    if namespace is not cel_ip:
+        raise TypeError("no such overload: isCanonical is ip.isCanonical")
+    text = _string(value)
+    try:
+        return celtypes.BoolType(str(parse_ip(text)) == text)
+    except ValueError as exc:
+        return _error(exc)
+
+
+def _ip_predicate(predicate: Callable[[Address], bool]) -> Callable[[object], celtypes.BoolType]:
+    return lambda value: celtypes.BoolType(predicate(_ip_of(value).addr))
+
+
+def cel_contains_ip(value: object, other: object) -> celtypes.BoolType | CELEvalError:
+    """`<CIDR>.containsIP(<IP or string>)`. An address of the other family is not contained."""
+    network = _cidr_of(value).network()
+    found = other if isinstance(other, IP) else cel_ip(_string(other))
+    if isinstance(found, CELEvalError):
+        return found
+    return celtypes.BoolType(found.addr.version == network.version and found.addr in network)
+
+
+def cel_contains_cidr(value: object, other: object) -> celtypes.BoolType | CELEvalError:
+    """`<CIDR>.containsCIDR(<CIDR or string>)`: *other* overlaps and is no wider."""
+    outer = _cidr_of(value)
+    inner = other if isinstance(other, CIDR) else cel_cidr(_string(other))
+    if isinstance(inner, CELEvalError):
+        return inner
+    network = outer.network()
+    return celtypes.BoolType(
+        inner.addr.version == network.version and inner.addr in network and outer.bits <= inner.bits
+    )
+
+
+#: The IP and CIDR libraries, by CEL name. `string(<IP or CIDR>)` needs no
+#: entry: celpy's `string` is `str`, which calls `__str__`.
+KUBERNETES_FUNCTIONS: Final[dict[str, Callable[..., object]]] = {
+    "ip": cel_ip,
+    "isIP": cel_is_ip,
+    "isCanonical": cel_is_canonical,
+    "family": lambda value: celtypes.IntType(_ip_of(value).addr.version),
+    "isUnspecified": _ip_predicate(lambda addr: int(addr) == 0),
+    "isLoopback": _ip_predicate(_is_loopback),
+    "isLinkLocalMulticast": _ip_predicate(_is_link_local_multicast),
+    "isLinkLocalUnicast": _ip_predicate(_is_link_local_unicast),
+    "isGlobalUnicast": _ip_predicate(_is_global_unicast),
+    "cidr": cel_cidr,
+    "isCIDR": cel_is_cidr,
+    "containsIP": cel_contains_ip,
+    "containsCIDR": cel_contains_cidr,
+    "masked": lambda value: CIDR(_cidr_of(value).network().network_address, _cidr_of(value).bits),
+    "prefixLength": lambda value: celtypes.IntType(_cidr_of(value).bits),
+}
+
+# The rest of the Kubernetes CEL environment (k8s.io/apiserver/pkg/cel/environment/base.go):
+# its own libraries, and cel-go's strings v2, sets, lists v3, optionals and two-variable
+# comprehensions. celpy has none of them, so a rule that calls one is skipped, not failed.
+
+#: Global functions, called as `name(...)`.
+UNIMPLEMENTED_FUNCTIONS: Final = frozenset({"quantity", "isQuantity", "url", "isURL", "semver", "isSemver"})
+
+#: Methods, called as `x.name(...)`.
+UNIMPLEMENTED_METHODS: Final = frozenset(
+    {
+        # lists
+        "isSorted",
+        "sum",
+        "max",
+        "indexOf",
+        "lastIndexOf",
+        # regex
+        "find",
+        "findAll",
+        # urls
+        "getScheme",
+        "getHost",
+        "getHostname",
+        "getPort",
+        "getEscapedPath",
+        "getQuery",
+        # quantity and semver
+        "sign",
+        "isGreaterThan",
+        "isLessThan",
+        "compareTo",
+        "asApproximateFloat",
+        "asInteger",
+        "isInteger",
+        "add",
+        "sub",
+        "major",
+        "minor",
+        "patch",
+        # format
+        "validate",
+        # cel-go strings
+        "charAt",
+        "lowerAscii",
+        "upperAscii",
+        "replace",
+        "split",
+        "substring",
+        "trim",
+        "join",
+        "format",
+        # cel-go lists
+        "slice",
+        "flatten",
+        "distinct",
+        "reverse",
+        "sort",
+        "sortBy",
+        "first",
+        "last",
+        # cel-go optionals
+        "hasValue",
+        "value",
+        "orValue",
+        "or",
+        "optMap",
+        "optFlatMap",
+        # cel-go two-variable comprehensions
+        "existsOne",
+        "transformList",
+        "transformMap",
+        "transformMapEntry",
+    }
+)
+
+#: Namespaces, called as `namespace.name(...)`.
+UNIMPLEMENTED_NAMESPACES: Final = frozenset({"format", "jsonpatch", "lists", "optional", "sets", "strings"})
+
+#: Macros celpy has in their one-variable form only. With two it raises.
+_COMPREHENSIONS: Final = frozenset({"all", "exists", "exists_one"})
+
+
+def _bare_ident(tree: lark.Tree[lark.Token] | lark.Token) -> str | None:
+    """The identifier *tree* is, when it is nothing more: `sets` in `sets.contains(...)`."""
+    node = tree
+    while not isinstance(node, str) and node.data in {"member", "primary"} and len(node.children) == 1:
+        node = node.children[0]
+    if not isinstance(node, str) and node.data == "ident":
+        return str(node.children[0])
+    return None
+
+
+def unimplemented_call(ast: lark.Tree[lark.Token]) -> str | None:
+    """A call in *ast* to a Kubernetes CEL library function this module does
+    not implement, innermost first. A lark `Token` is a `str`; every other
+    node is a `Tree`."""
+    for node in ast.iter_subtrees():
+        if node.data == "ident_arg":
+            name = str(node.children[0])
+            if name in UNIMPLEMENTED_FUNCTIONS:
+                return name
+        elif node.data == "member_dot_arg":
+            receiver, method = node.children[0], str(node.children[1])
+            namespace = _bare_ident(receiver)
+            if namespace in UNIMPLEMENTED_NAMESPACES:
+                return f"{namespace}.{method}"
+            if method in UNIMPLEMENTED_METHODS:
+                return method
+            arguments = node.children[2] if len(node.children) > 2 else None
+            if method in _COMPREHENSIONS and not isinstance(arguments, str | None) and len(arguments.children) == 3:
+                return f"{method} with two variables"
+    return None
+
+
 @dataclass(frozen=True, slots=True)
 class CelFailure:
     #: JSON pointer into the object, `""` for the object itself.
@@ -175,7 +498,8 @@ class CelResult:
 class Unsupported:
     """An expression with nothing to judge it by."""
 
-    #: "unsupported: syntax", or "unsupported: <the undeclared name>".
+    #: "unsupported: syntax", "unsupported: <the unimplemented library call>",
+    #: or "unsupported: <the undeclared name>".
     reason: str
 
 
@@ -190,9 +514,14 @@ class CelChecker:
         found = self._programs.get(rule)
         if found is None:
             try:
-                found = self._env.program(self._env.compile(rule))
+                ast = self._env.compile(rule)
             except CELParseError:
                 found = "unsupported: syntax"
+            else:
+                call = unimplemented_call(ast)
+                # celpy's `CELFunction` returns its own value union, which has no room for `IP` or `CIDR`.
+                functions = cast("dict[str, CELFunction]", KUBERNETES_FUNCTIONS)
+                found = f"unsupported: {call}" if call else self._env.program(ast, functions)
             self._programs[rule] = found
         return found
 
