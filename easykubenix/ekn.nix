@@ -454,6 +454,36 @@ in
       example = [ "https://nixkube.cachix.org" ];
     };
 
+    assertCachedKeys = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [ ];
+      example = [
+        "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
+        "nix-cache-1:7gm/+1Uow9GYSpeBl7MLooPKdWVbuciAaWgsHUgAXoQ="
+      ];
+      description = ''
+        The public keys the nodes trust: their `trusted-public-keys`. With
+        keys here, `ekn.assertCached` also refuses a path that a substituter
+        holds and that no one of these keys signed. A content-addressed
+        path needs no signature, as on a node. Empty checks no signature.
+
+        **A node refuses an unsigned substitute**, and a path the cache
+        already holds is never sent again by `nix copy`, so a later push
+        does not fix it. Measured on sg1 on 2026-11-28: one path of 371 had
+        no signature, the apply passed, and no node could mount the new
+        environment.
+
+        `ekn kubeapply` gets such a path signed first. It sends the path
+        again from this machine's store to the substituter that holds it,
+        and pynixd with `sign_added_paths` signs an admin's add whose NAR
+        hash and references match what it holds. Then the check asks again,
+        and refuses the paths that are still unsigned.
+
+        The nodes' list, not `ekn.buildStoreKeys`: a node usually also trusts
+        `cache.nixos.org-1`, and a path that only that key signed is fine.
+      '';
+    };
+
     preApplyCommand = lib.mkOption {
       type = lib.types.nullOr lib.types.path;
       default = null;

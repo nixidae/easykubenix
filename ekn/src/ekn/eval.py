@@ -237,6 +237,10 @@ class KubeApplyConfigResult(BaseModel):
     #: this apply names. Empty is off, and right for an instance with no
     #: CSI-backed store. See `storecheck.assert_fetchable`.
     assert_cached: list[str] = Field(default_factory=list, alias="assertCached")
+    #: `ekn.assertCachedKeys` -- the nodes' `trusted-public-keys`. Empty
+    #: checks no signature, and is also what an easykubenix older than the
+    #: option gives.
+    assert_cached_keys: list[str] = Field(default_factory=list, alias="assertCachedKeys")
     #: `deployment.unitFieldManagers` -- unit name to its `fieldManager`.
     #: Read **only while the engine is paused**; see `apply.field_manager_for`.
     unit_field_managers: dict[str, str] = Field(default_factory=dict, alias="unitFieldManagers")
@@ -1173,6 +1177,9 @@ async def evaluate_kubeapply_config(
         assert_cached = (
             await ekn_opts.attr("assertCached").to_python() if await ekn_opts.has_attr("assertCached") else []
         )
+        assert_cached_keys = (
+            await ekn_opts.attr("assertCachedKeys").to_python() if await ekn_opts.has_attr("assertCachedKeys") else []
+        )
         # An easykubenix older than the option reads as `None`, which is the
         # same as declaring none: the fence refuses and names the flag. That
         # is the right way round -- a version that cannot express the answer
@@ -1200,6 +1207,7 @@ async def evaluate_kubeapply_config(
                 "apiMappings": await proxy.attr("kubernetes").attr("apiMappings").to_python(),
                 "enginePause": engine_pause,
                 "assertCached": assert_cached,
+                "assertCachedKeys": assert_cached_keys,
                 "unitFieldManagers": unit_managers,
                 "preApplyCommand": pre_apply_command,
                 "clusterUid": cluster_uid,

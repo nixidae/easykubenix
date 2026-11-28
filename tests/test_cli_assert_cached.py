@@ -66,3 +66,22 @@ class TestAssertCachedCommand:
 
         with pytest.raises(SystemExit, match="on no substituter"):
             await command.run()
+
+    async def test_trusted_keys_reach_the_check_and_nothing_is_signed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The standalone check only reads: it passes the keys and no `resign`."""
+        from ekn import storecheck
+
+        seen: dict[str, object] = {}
+
+        async def record(_roots: set[str], **kwargs: object) -> None:
+            seen.update(kwargs)
+
+        monkeypatch.setattr(storecheck, "assert_fetchable", record)
+        await AssertCached(
+            manifests=[_manifest(tmp_path, CACHED)], substituter=["ssh-ng://pynixd"], trusted_key=["nix-cache-1:x"]
+        ).run()
+
+        assert seen["trusted_keys"] == ["nix-cache-1:x"]
+        assert "resign" not in seen

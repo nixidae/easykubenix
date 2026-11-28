@@ -1414,7 +1414,12 @@ async def _apply_groups(  # noqa: PLR0913 -- each argument is one decision `ekn 
     if cfg.assert_cached:
         sending = [spec for _group, plan in prepared for spec in plan.objects if object_key(spec) not in held]
         try:
-            await storecheck.assert_fetchable(storecheck.store_paths_in(sending), substituters=cfg.assert_cached)
+            await storecheck.assert_fetchable(
+                storecheck.store_paths_in(sending),
+                substituters=cfg.assert_cached,
+                trusted_keys=cfg.assert_cached_keys,
+                resign=storecheck.resend_unsigned,
+            )
         except (storecheck.StorePathsUnavailableError, storecheck.NoSubstitutersError) as exc:
             raise SystemExit(str(exc)) from exc
 
@@ -2329,6 +2334,10 @@ class AssertCached(Command):
     substituter: list[str] = opt(
         help="Substituter to ask, repeatable. These are the caches a node carries.",
     )
+    trusted_key: list[str] = opt(
+        help="A public key the nodes trust, repeatable: a held path that none of them signed fails. "
+        "None given checks no signature. This command signs nothing; `ekn kubeapply` does.",
+    )
 
     async def run(self) -> None:
         paths: set[str] = set()
@@ -2340,7 +2349,7 @@ class AssertCached(Command):
         # would fail a check made before the paths were read.
         _log.info("checking store paths", roots=len(paths), substituters=len(self.substituter))
         try:
-            await storecheck.assert_fetchable(paths, substituters=self.substituter)
+            await storecheck.assert_fetchable(paths, substituters=self.substituter, trusted_keys=self.trusted_key)
         except (storecheck.StorePathsUnavailableError, storecheck.NoSubstitutersError) as exc:
             raise SystemExit(str(exc)) from exc
 
